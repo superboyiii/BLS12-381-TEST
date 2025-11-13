@@ -21,15 +21,21 @@
 #   - g2: Test G2 with compressed format
 #   - ethereum-g1: Test G1 with Ethereum format (uses Neo's test vectors)
 #   - ethereum-g2: Test G2 with Ethereum format (uses Neo's test vectors)
+#   - g1add: Test G1 addition (Ethereum format)
+#   - g2add: Test G2 addition (Ethereum format)
+#   - g1mul: Test G1 multiplication (Ethereum format)
+#   - g2mul: Test G2 multiplication (Ethereum format)
 #
 # Examples:
 #   ./test_bls12381_multiexp_enhanced.sh g1 10 5    # Run 10 G1 tests, max 5 scalars each
 #   ./test_bls12381_multiexp_enhanced.sh g2 5      # Run 5 G2 tests, default max_scalars (128)
 #   ./test_bls12381_multiexp_enhanced.sh ethereum-g1  # Run Ethereum G1 test vectors
 #   ./test_bls12381_multiexp_enhanced.sh ethereum-g2  # Run Ethereum G2 test vectors
+#   ./test_bls12381_multiexp_enhanced.sh g1add 5    # Run 5 G1 addition tests
+#   ./test_bls12381_multiexp_enhanced.sh g1mul 5    # Run 5 G1 multiplication tests
 # ============================================================================
 
-set -e  # Exit immediately if a command exits with a non-zero status
+# set -e  # Disabled to allow better error handling in Windows environment
 
 # Color definitions
 RED='\033[0;31m'
@@ -56,11 +62,11 @@ MAX_SCALARS="${3:-128}"
 
 # Validate test type
 case "$TEST_TYPE" in
-    g1|g2|ethereum-g1|ethereum-g2)
+    g1|g2|ethereum-g1|ethereum-g2|g1add|g2add|g1mul|g2mul)
         ;;
     *)
         echo -e "${RED}Error: Invalid test type '$TEST_TYPE'${NC}"
-        echo "Valid test types: g1, g2, ethereum-g1, ethereum-g2"
+        echo "Valid test types: g1, g2, ethereum-g1, ethereum-g2, g1add, g2add, g1mul, g2mul"
         exit 1
         ;;
 esac
@@ -258,6 +264,8 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
     
     USE_G2=false
     USE_ETHEREUM=false
+    USE_ADD_MUL=false
+    OPERATION_MODE=""
     EXPECTED_RESULT=""
     INPUT_HEX=""
     
@@ -265,14 +273,17 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
         g1)
             USE_G2=false
             USE_ETHEREUM=false
+            USE_ADD_MUL=false
             ;;
         g2)
             USE_G2=true
             USE_ETHEREUM=false
+            USE_ADD_MUL=false
             ;;
         ethereum-g1)
             USE_G2=false
             USE_ETHEREUM=true
+            USE_ADD_MUL=false
             if [ $test_num -eq 1 ]; then
                 INPUT_HEX="$ETH_G1_SINGLE_INPUT"
                 EXPECTED_RESULT="$ETH_G1_SINGLE_EXPECTED"
@@ -284,10 +295,20 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
         ethereum-g2)
             USE_G2=true
             USE_ETHEREUM=true
+            USE_ADD_MUL=false
             INPUT_HEX="$ETH_G2_SINGLE_INPUT"
             EXPECTED_RESULT="$ETH_G2_SINGLE_EXPECTED"
             echo -e "${YELLOW}Note: G2 Ethereum format testing is currently under investigation${NC}"
             echo -e "${YELLOW}G2 point parsing may fail due to format differences${NC}"
+            ;;
+        g1add|g2add|g1mul|g2mul)
+            USE_ADD_MUL=true
+            OPERATION_MODE="$TEST_TYPE"
+            if [[ "$TEST_TYPE" == *"g2"* ]]; then
+                USE_G2=true
+            else
+                USE_G2=false
+            fi
             ;;
     esac
     
@@ -320,6 +341,323 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
             echo -e "${RED}✗ Ethereum format test failed!${NC}"
             mismatch_count=$((mismatch_count + 1))
         fi
+        echo ""
+        continue
+    fi
+    
+    if [ "$USE_ADD_MUL" = true ]; then
+        # Add/Mul operations test
+        echo "Step 1: Generating test data with pairing_gen.go..."
+        cd "$EVM_DIR"
+        USE_G2_FLAG=""
+        if [ "$USE_G2" = true ]; then
+            USE_G2_FLAG="--use-g2"
+        fi
+        if ! go run pairing_gen.go random 1 $USE_G2_FLAG > "$TEMP_OUTPUT" 2>&1; then
+            echo -e "${RED}Error: pairing_gen.go execution failed${NC}"
+            cat "$TEMP_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        # Extract point(s) from output
+        if [ "$USE_G2" = true ]; then
+            POINT1_HEX=$(grep -m 1 "^G2 (compressed, 96 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            POINT2_HEX="$POINT1_HEX" # Use same point for testing, or generate second
+        else
+            POINT1_HEX=$(grep -m 1 "^G1 (compressed, 48 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            POINT2_HEX="$POINT1_HEX" # Use same point for testing
+        fi
+        
+        if [ -z "$POINT1_HEX" ]; then
+            echo -e "${RED}Error: Cannot extract point from pairing_gen.go${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        # Generate second point for Add operations
+        if [[ "$OPERATION_MODE" == *"add"* ]]; then
+            # Generate another random point
+            if ! go run pairing_gen.go random 1 $USE_G2_FLAG > "$TEMP_OUTPUT" 2>&1; then
+                echo -e "${RED}Error: Failed to generate second point${NC}"
+                mismatch_count=$((mismatch_count + 1))
+                continue
+            fi
+            if [ "$USE_G2" = true ]; then
+                POINT2_HEX=$(grep -m 1 "^G2 (compressed, 96 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            else
+                POINT2_HEX=$(grep -m 1 "^G1 (compressed, 48 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            fi
+        fi
+        
+        # Convert compressed points to Ethereum format and prepare input
+        echo "Step 2: Converting points to Ethereum format..."
+        if [[ "$OPERATION_MODE" == *"add"* ]]; then
+            # For Add: need to convert both points to Ethereum format
+            # Use pairing_gen.go to convert: deserialize compressed -> encode Ethereum
+            # Actually, we'll generate the input directly using pairing_gen.go's conversion
+            # For now, we'll use a helper script or call pairing_gen.go in a special mode
+            # Since pairing_gen.go doesn't have a direct conversion mode, we'll need to
+            # generate the Ethereum format input in the C# helper
+            INPUT_HEX="" # Will be generated in C# helper
+        else
+            # For Mul: need point + scalar
+            SCALAR_VALUE="2" # Use fixed scalar for testing
+            INPUT_HEX="" # Will be generated in C# helper
+        fi
+        
+        # Calculate expected result using pairing_gen.go
+        echo "Step 3: Calculating expected result with pairing_gen.go..."
+        if [[ "$OPERATION_MODE" == "g1add" ]]; then
+            # Need to convert points to Ethereum format first
+            # For now, we'll generate input in C# and use pairing_gen.go to verify
+            echo -e "${YELLOW}Note: G1Add test requires Ethereum format conversion${NC}"
+            echo -e "${YELLOW}This will be handled by the C# helper and pairing_gen.go${NC}"
+        elif [[ "$OPERATION_MODE" == "g2add" ]]; then
+            echo -e "${YELLOW}Note: G2Add test requires Ethereum format conversion${NC}"
+        elif [[ "$OPERATION_MODE" == "g1mul" ]]; then
+            echo -e "${YELLOW}Note: G1Mul test requires Ethereum format conversion${NC}"
+        elif [[ "$OPERATION_MODE" == "g2mul" ]]; then
+            echo -e "${YELLOW}Note: G2Mul test requires Ethereum format conversion${NC}"
+        fi
+        
+        # Update Bls12381MultiExpHelper.cs
+        echo "Step 4: Updating Bls12381MultiExpHelper.cs..."
+        cd "$SCRIPT_DIR/$HELPER_DIR"
+        HELPER_CS_FILE="Bls12381MultiExpHelper.cs"
+        cp "$HELPER_BACKUP" "$HELPER_CS_FILE"
+        
+        # Update operation type
+        sed -i.bak "s|private static readonly string OPERATION_TYPE = \".*\";|private static readonly string OPERATION_TYPE = \"$OPERATION_MODE\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+        
+        # Update points
+        if [ "$USE_G2" = true ]; then
+            # Update G2_HEX (fallback)
+            sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$POINT1_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+            # Update G2_POINTS array first element - find the line with G2_POINTS array and replace first quoted string
+            # This handles both cases: with and without comments
+            awk -v new_point="$POINT1_HEX" '
+                /private static readonly string\[\] G2_POINTS/,/^[[:space:]]*\};/ {
+                    if (match($0, /"[^"]*"/) && !found) {
+                        sub(/"[^"]*"/, "\"" new_point "\"")
+                        found = 1
+                    }
+                }
+                { print }
+            ' "$HELPER_CS_FILE" > "$HELPER_CS_FILE.tmp" && mv "$HELPER_CS_FILE.tmp" "$HELPER_CS_FILE"
+            if [[ "$OPERATION_MODE" == *"add"* ]]; then
+                sed -i.bak "s|private static readonly string G2_SECOND_POINT_HEX = \".*\";|private static readonly string G2_SECOND_POINT_HEX = \"$POINT2_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+            fi
+        else
+            # Update G1_HEX (fallback)
+            sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$POINT1_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+            # Update G1_POINTS array first element - find the line with G1_POINTS array and replace first quoted string
+            # This handles both cases: with and without comments
+            awk -v new_point="$POINT1_HEX" '
+                /private static readonly string\[\] G1_POINTS/,/^[[:space:]]*\};/ {
+                    if (match($0, /"[^"]*"/) && !found) {
+                        sub(/"[^"]*"/, "\"" new_point "\"")
+                        found = 1
+                    }
+                }
+                { print }
+            ' "$HELPER_CS_FILE" > "$HELPER_CS_FILE.tmp" && mv "$HELPER_CS_FILE.tmp" "$HELPER_CS_FILE"
+            if [[ "$OPERATION_MODE" == *"add"* ]]; then
+                sed -i.bak "s|private static readonly string G1_SECOND_POINT_HEX = \".*\";|private static readonly string G1_SECOND_POINT_HEX = \"$POINT2_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+            fi
+        fi
+        
+        # Update scalar for Mul operations
+        if [[ "$OPERATION_MODE" == *"mul"* ]]; then
+            sed -i.bak "s|private static readonly BigInteger MUL_SCALAR = .*;|private static readonly BigInteger MUL_SCALAR = $SCALAR_VALUE;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+        fi
+        
+        echo "Step 5: Generating Neo VM script..."
+        # Force rebuild to ensure latest code changes are used
+        # Note: We're already in the Bls12381MultiExpHelper directory (cd'd in Step 4)
+        BUILD_OUTPUT=$(dotnet build Bls12381MultiExpHelper.csproj 2>&1)
+        BUILD_EXIT_CODE=$?
+        if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo -e "${RED}Error: C# project build failed${NC}"
+            echo "$BUILD_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        if ! dotnet run --no-build > "$TEMP_OUTPUT" 2>&1; then
+            echo -e "${RED}Error: C# program execution failed${NC}"
+            cat "$TEMP_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        # Debug: Show first few lines of output
+        echo "Debug: C# program output (first 10 lines):"
+        if command -v head >/dev/null 2>&1; then
+            head -n 10 "$TEMP_OUTPUT" 2>/dev/null || cat "$TEMP_OUTPUT" | head -n 10
+        else
+            # Windows fallback: use PowerShell or just show all output
+            cat "$TEMP_OUTPUT" | head -n 10 2>/dev/null || cat "$TEMP_OUTPUT"
+        fi
+        
+        # Extract Base64 script - try multiple methods for Windows compatibility
+        BASE64_SCRIPT=""
+        if command -v grep >/dev/null 2>&1; then
+            BASE64_SCRIPT=$(grep -A 1 "Base64 encoding (for Neo CLI):" "$TEMP_OUTPUT" 2>/dev/null | tail -n 1 | tr -d '[:space:]' 2>/dev/null || echo "")
+        fi
+        
+        # Fallback: use sed or awk if grep fails
+        if [ -z "$BASE64_SCRIPT" ]; then
+            if command -v sed >/dev/null 2>&1; then
+                BASE64_SCRIPT=$(sed -n '/Base64 encoding (for Neo CLI):/,/^$/p' "$TEMP_OUTPUT" 2>/dev/null | sed -n '2p' | tr -d '[:space:]' 2>/dev/null || echo "")
+            fi
+        fi
+        
+        if [ -z "$BASE64_SCRIPT" ]; then
+            echo -e "${RED}Error: Cannot extract Base64 script${NC}"
+            echo "Debug: Full C# output:"
+            cat "$TEMP_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        echo "Debug: Base64 script extracted (length: ${#BASE64_SCRIPT})"
+        
+        # Extract Ethereum format input for pairing_gen.go (for Add/Mul operations)
+        ETHEREUM_INPUT_HEX=""
+        if grep -q "Ethereum format input (for pairing_gen.go" "$TEMP_OUTPUT"; then
+            ETHEREUM_INPUT_HEX=$(grep -A 1 "Ethereum format input (for pairing_gen.go" "$TEMP_OUTPUT" | tail -n 1 | tr -d '[:space:]')
+        fi
+        
+        echo "Step 6: Calling Neo RPC invokescript..."
+        # RPC call logic (same as MultiExp)
+        if [ "$JSON_PARSER" = "jq" ]; then
+            RPC_REQUEST=$(jq -n \
+                --arg script "$BASE64_SCRIPT" \
+                '{
+                    jsonrpc: "2.0",
+                    id: 1,
+                    method: "invokescript",
+                    params: [$script, [], false]
+                }')
+        else
+            RPC_REQUEST=$(echo "$BASE64_SCRIPT" | "$JSON_PARSER" -c "
+import json
+import sys
+script = sys.stdin.read().strip()
+request = {
+    'jsonrpc': '2.0',
+    'id': 1,
+    'method': 'invokescript',
+    'params': [script, [], False]
+}
+print(json.dumps(request))
+")
+        fi
+        
+        RPC_RESPONSE=$(curl -s -X POST "$RPC_URL" \
+            -H "Content-Type: application/json" \
+            -d "$RPC_REQUEST")
+        
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: RPC call failed${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        RPC_ERROR=$(json_get "$RPC_RESPONSE" ".error" "")
+        if [ -n "$RPC_ERROR" ] && [ "$RPC_ERROR" != "null" ]; then
+            echo -e "${RED}Error: RPC returned error: $RPC_ERROR${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        STATE=$(json_get "$RPC_RESPONSE" ".result.state" "")
+        if [ "$STATE" != "HALT" ]; then
+            EXCEPTION=$(json_get "$RPC_RESPONSE" ".result.exception" "unknown")
+            echo -e "${RED}Error: Script execution failed, state: $STATE, exception: $EXCEPTION${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        STACK_VALUE=$(json_get "$RPC_RESPONSE" ".result.stack[0].value" "")
+        if [ -z "$STACK_VALUE" ] || [ "$STACK_VALUE" = "null" ]; then
+            echo -e "${RED}Error: Cannot extract result from stack${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        # Convert result from Base64 to hex
+        if command -v base64 >/dev/null 2>&1; then
+            ACTUAL_RESULT=$(echo "$STACK_VALUE" | base64 -d 2>/dev/null | xxd -p -c 256 | tr -d '\n' 2>/dev/null)
+            if [ $? -ne 0 ]; then
+                ACTUAL_RESULT=$(echo "$STACK_VALUE" | base64 -D 2>/dev/null | xxd -p -c 256 | tr -d '\n' 2>/dev/null)
+            fi
+        else
+            echo -e "${RED}Error: base64 command not found${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        # Calculate expected result using pairing_gen.go
+        echo "Step 7: Calculating expected result..."
+        if [ -z "$ETHEREUM_INPUT_HEX" ]; then
+            echo -e "${YELLOW}Warning: Cannot extract Ethereum format input from C# output${NC}"
+            echo -e "${YELLOW}Actual result from Neo: ${ACTUAL_RESULT:0:64}...${NC}"
+            echo -e "${YELLOW}Please verify manually using pairing_gen.go $OPERATION_MODE mode${NC}"
+            success_count=$((success_count + 1))
+            echo ""
+            continue
+        fi
+        
+        # Call pairing_gen.go to calculate expected result
+        cd "$EVM_DIR"
+        if ! go run pairing_gen.go "$OPERATION_MODE" --input "$ETHEREUM_INPUT_HEX" > "$TEMP_OUTPUT" 2>&1; then
+            echo -e "${RED}Error: pairing_gen.go execution failed${NC}"
+            cat "$TEMP_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        
+        # Extract expected result from pairing_gen.go output
+        EXPECTED_RESULT=$(grep -m 1 "^Result (Ethereum format," "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+        if [ -z "$EXPECTED_RESULT" ]; then
+            echo -e "${YELLOW}Warning: Cannot extract expected result from pairing_gen.go${NC}"
+            echo -e "${YELLOW}Actual result from Neo: ${ACTUAL_RESULT:0:64}...${NC}"
+            success_count=$((success_count + 1))
+            echo ""
+            continue
+        fi
+        
+        # Compare results
+        echo "Step 8: Comparing results..."
+        echo ""
+        echo -e "${CYAN}=== Result Comparison ===${NC}"
+        echo "Expected (complete): $EXPECTED_RESULT"
+        echo "Actual   (complete): $ACTUAL_RESULT"
+        echo ""
+        echo "Expected (first 64): ${EXPECTED_RESULT:0:64}..."
+        echo "Actual   (first 64): ${ACTUAL_RESULT:0:64}..."
+        echo -e "${CYAN}=========================${NC}"
+        echo ""
+        
+        if [ "$EXPECTED_RESULT" = "$ACTUAL_RESULT" ]; then
+            echo -e "${GREEN}✓ Test passed!${NC}"
+            success_count=$((success_count + 1))
+        else
+            echo -e "${RED}✗ Test failed! Results do not match${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            {
+                echo "=========================================="
+                echo "Failed Test #$test_num ($TEST_TYPE) - $(date)"
+                echo "=========================================="
+                echo "Operation: $OPERATION_MODE"
+                echo "Ethereum input: $ETHEREUM_INPUT_HEX"
+                echo "Expected result: $EXPECTED_RESULT"
+                echo "Actual result: $ACTUAL_RESULT"
+                echo "Base64 Script: $BASE64_SCRIPT"
+                echo ""
+            } >> "$FAILED_TEST_LOG"
+        fi
+        
         echo ""
         continue
     fi

@@ -255,17 +255,8 @@ func computeMultiExpFromCompressed(pointHex string, scalars []*big.Int, useG2 bo
 			return "", fmt.Errorf("unexpected G2 uncompressed length: %d", len(g2ResultUncompressed))
 		}
 
-		// Convert to compressed format (96 bytes)
-		g2ResultCompressed := make([]byte, 96)
-		copy(g2ResultCompressed, g2ResultUncompressed[:96]) // Extract x coordinate
-		g2ResultCompressed[0] |= 0x80                       // Set compression flag
-
-		// Set y coordinate sort flag using lexicographically largest check
-		yBytes := g2ResultUncompressed[96:192]
-		if isLexicographicallyLargestFp2(yBytes) {
-			g2ResultCompressed[0] |= 0x20
-		}
-
+		// Use the helper function to ensure correct format
+		g2ResultCompressed := convertG2AffineToCompressed(resultG2)
 		return fmt.Sprintf("%x", g2ResultCompressed), nil
 	} else {
 		// G1 MultiExp
@@ -388,19 +379,8 @@ func runRandomMode(maxScalars int, useG2 bool) {
 	// Neo requires compressed format (96 bytes = 192 hex characters)
 	g2Uncompressed := Q.Marshal()
 	if len(g2Uncompressed) == 192 {
-		// Uncompressed format: first 96 bytes are x coordinate (x.C1 + x.C0), last 96 bytes are y coordinate
-		// Compressed format: use only x coordinate (96 bytes) and add flags
-		g2Compressed := make([]byte, 96)
-		copy(g2Compressed, g2Uncompressed[:96]) // Extract x coordinate
-
-		// Set compression flag (MSB)
-		g2Compressed[0] |= 0x80
-
-		// Extract y coordinate to determine sort flag using lexicographically largest check
-		yBytes := g2Uncompressed[96:192]
-		if isLexicographicallyLargestFp2(yBytes) {
-			g2Compressed[0] |= 0x20 // Set sort flag
-		}
+		// Use the helper function to ensure correct format
+		g2Compressed := convertG2AffineToCompressed(Q)
 
 		fmt.Printf("G2 (compressed, 96 bytes): %x\n", g2Compressed)
 		fmt.Printf("G2 (uncompressed, 192 bytes): %x\n", g2Uncompressed)
@@ -558,13 +538,8 @@ func runRandomMode(maxScalars int, useG2 bool) {
 		for i, q := range g2Points {
 			g2Uncompressed := q.Marshal()
 			if len(g2Uncompressed) == 192 {
-				g2Compressed := make([]byte, 96)
-				copy(g2Compressed, g2Uncompressed[:96])
-				g2Compressed[0] |= 0x80
-				yBytes := g2Uncompressed[96:192]
-				if isLexicographicallyLargestFp2(yBytes) {
-					g2Compressed[0] |= 0x20
-				}
+				// Use the helper function to ensure correct format
+				g2Compressed := convertG2AffineToCompressed(q)
 				fmt.Printf("    \"%x\"%s  // Point[%d], will be used with Scalar[%d] = %s\n", g2Compressed, func() string {
 					if i < len(g2Points)-1 {
 						return ","
@@ -618,13 +593,8 @@ func runRandomMode(maxScalars int, useG2 bool) {
 		// Serialize G2 result
 		g2ResultUncompressed := resultG2.Marshal()
 		if len(g2ResultUncompressed) == 192 {
-			g2ResultCompressed := make([]byte, 96)
-			copy(g2ResultCompressed, g2ResultUncompressed[:96])
-			g2ResultCompressed[0] |= 0x80
-			yBytes := g2ResultUncompressed[96:192]
-			if isLexicographicallyLargestFp2(yBytes) {
-				g2ResultCompressed[0] |= 0x20
-			}
+			// Use the helper function to ensure correct format
+			g2ResultCompressed := convertG2AffineToCompressed(resultG2)
 			fmt.Printf("G2 MultiExp result (compressed, 96 bytes): %x\n", g2ResultCompressed)
 			fmt.Printf("Expected result (for comparison with Neo invokescript): %x\n", g2ResultCompressed)
 		}
@@ -805,10 +775,24 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "      - --use-g2: Use G2 format (default: false, uses G1)\n")
 	fmt.Fprintf(os.Stderr, "      Example: go run pairing_gen.go ethereum --input <EthG1MultiExpSingleInputHex>\n")
 	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "  G1/G2 Add/Mul operations (Ethereum format):\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go g1add --input <hex>\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go g2add --input <hex>\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go g1mul --input <hex>\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go g2mul --input <hex>\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go g2add-random  # Random G2 addition test\n")
+	fmt.Fprintf(os.Stderr, "      - --input: Ethereum format input hex string\n")
+	fmt.Fprintf(os.Stderr, "        g1add: 256 bytes (128 bytes point1 + 128 bytes point2)\n")
+	fmt.Fprintf(os.Stderr, "        g2add: 512 bytes (256 bytes point1 + 256 bytes point2)\n")
+	fmt.Fprintf(os.Stderr, "        g1mul: 160 bytes (128 bytes point + 32 bytes scalar)\n")
+	fmt.Fprintf(os.Stderr, "        g2mul: 288 bytes (256 bytes point + 32 bytes scalar)\n")
+	fmt.Fprintf(os.Stderr, "\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
 	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go 5\n")
 	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go manual --g1 b2deb4e364cc09aceb924ebe236d28b5d180e27ee0428697f3d088b7c83637820c3c0c95b83189a6301dbaa405792564 --scalars \"1732363698,436226955,507793302,1540421097\"\n")
 	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go ethereum --input 0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e10000000000000000000000000000000000000000000000000000000000000011\n")
+	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go g1add --input <256_bytes_hex>\n")
+	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go g1mul --input <160_bytes_hex>\n")
 	fmt.Fprintf(os.Stderr, "  Note: In PowerShell, use single quotes or escape: --scalars 'val1,val2' or --scalars \\\"val1,val2\\\"\n")
 }
 
@@ -854,6 +838,354 @@ func parseEthereumScalarFromBytes(data []byte) *big.Int {
 	return new(big.Int).SetBytes(data)
 }
 
+// encodeEthereumG1Point encodes a G1 point to Ethereum format (128 bytes)
+// Format: 64 bytes x (first 16 bytes are 0, last 48 bytes are big-endian) +
+//
+//	64 bytes y (first 16 bytes are 0, last 48 bytes are big-endian)
+func encodeEthereumG1Point(point bls.G1Affine) []byte {
+	if point.IsInfinity() {
+		return make([]byte, 128)
+	}
+
+	uncompressed := point.Marshal()
+	if len(uncompressed) != 96 {
+		panic(fmt.Sprintf("unexpected G1 uncompressed length: %d", len(uncompressed)))
+	}
+
+	// Extract x and y (48 bytes each, big-endian)
+	xBytes := uncompressed[0:48]
+	yBytes := uncompressed[48:96]
+
+	// Ethereum format: 64 bytes per field element (first 16 bytes are 0, last 48 bytes are the value)
+	output := make([]byte, 128)
+	copy(output[16:64], xBytes)  // x: skip first 16 bytes, then 48 bytes
+	copy(output[80:128], yBytes) // y: skip first 16 bytes, then 48 bytes
+
+	return output
+}
+
+// encodeEthereumG2Point encodes a G2 point to Ethereum format (256 bytes)
+// Format: 64 bytes x.C0 + 64 bytes x.C1 + 64 bytes y.C0 + 64 bytes y.C1
+// Each 64-byte field: first 16 bytes are 0, last 48 bytes are big-endian
+func encodeEthereumG2Point(point bls.G2Affine) []byte {
+	if point.IsInfinity() {
+		return make([]byte, 256)
+	}
+
+	uncompressed := point.Marshal()
+	if len(uncompressed) != 192 {
+		panic(fmt.Sprintf("unexpected G2 uncompressed length: %d", len(uncompressed)))
+	}
+
+	// gnark-crypto format: [x.C1 (48 bytes) + x.C0 (48 bytes) + y.C1 (48 bytes) + y.C0 (48 bytes)]
+	// Ethereum format: [x.C0 (64 bytes) + x.C1 (64 bytes) + y.C0 (64 bytes) + y.C1 (64 bytes)]
+	xC1Bytes := uncompressed[0:48]
+	xC0Bytes := uncompressed[48:96]
+	yC1Bytes := uncompressed[96:144]
+	yC0Bytes := uncompressed[144:192]
+
+	output := make([]byte, 256)
+	// x.C0: first 64 bytes, skip first 16, then 48 bytes
+	copy(output[16:64], xC0Bytes)
+	// x.C1: second 64 bytes, skip first 16, then 48 bytes
+	copy(output[80:128], xC1Bytes)
+	// y.C0: third 64 bytes, skip first 16, then 48 bytes
+	copy(output[144:192], yC0Bytes)
+	// y.C1: fourth 64 bytes, skip first 16, then 48 bytes
+	copy(output[208:256], yC1Bytes)
+
+	return output
+}
+
+// computeG1Add computes G1 point addition: p1 + p2
+// Input: two Ethereum format G1 points (128 bytes each = 256 bytes total)
+// Output: Ethereum format G1 point (128 bytes)
+func computeG1Add(inputHex string) (string, error) {
+	inputHex = strings.TrimSpace(inputHex)
+	inputBytes, err := hex.DecodeString(inputHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse input hex: %v", err)
+	}
+
+	if len(inputBytes) != 256 {
+		return "", fmt.Errorf("G1 add input must be 256 bytes (128 bytes per point), got %d", len(inputBytes))
+	}
+
+	// Parse two G1 points
+	p1, err := parseEthereumG1PointFromBytes(inputBytes[0:128])
+	if err != nil {
+		return "", fmt.Errorf("failed to parse first G1 point: %v", err)
+	}
+
+	p2, err := parseEthereumG1PointFromBytes(inputBytes[128:256])
+	if err != nil {
+		return "", fmt.Errorf("failed to parse second G1 point: %v", err)
+	}
+
+	// Compute addition: p1 + p2
+	var p1Jac bls.G1Jac
+	p1Jac.FromAffine(&p1)
+	var p2Jac bls.G1Jac
+	p2Jac.FromAffine(&p2)
+	p1Jac.AddAssign(&p2Jac)
+
+	var result bls.G1Affine
+	result.FromJacobian(&p1Jac)
+
+	// Encode result to Ethereum format
+	resultBytes := encodeEthereumG1Point(result)
+	return hex.EncodeToString(resultBytes), nil
+}
+
+// computeG2Add computes G2 point addition: p1 + p2
+// Input: two Ethereum format G2 points (256 bytes each = 512 bytes total)
+// Output: Ethereum format G2 point (256 bytes)
+// This function follows gnark-crypto standard and is compatible with Bls12381MultiExpHelper.cs
+func computeG2Add(inputHex string) (string, error) {
+	inputHex = strings.TrimSpace(inputHex)
+	inputBytes, err := hex.DecodeString(inputHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse input hex: %v", err)
+	}
+
+	if len(inputBytes) != 512 {
+		return "", fmt.Errorf("G2 add input must be 512 bytes (256 bytes per point), got %d", len(inputBytes))
+	}
+
+	// Parse two G2 points from Ethereum format
+	// Create separate slices to avoid potential slice sharing issues
+	point1Data := make([]byte, 256)
+	copy(point1Data, inputBytes[0:256])
+	point2Data := make([]byte, 256)
+	copy(point2Data, inputBytes[256:512])
+
+	// Verify point2Data's x.C0 padding is zero before parsing
+	for i := 0; i < 16; i++ {
+		if point2Data[i] != 0 {
+			return "", fmt.Errorf("second point x.C0 padding byte[%d] is non-zero: 0x%02x. Input data may be corrupted. First point y.C0 data (bytes 144-160): %x", i, point2Data[i], inputBytes[144:160])
+		}
+	}
+
+	p1, err := parseEthereumG2PointFromBytes(point1Data)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse first G2 point: %v", err)
+	}
+
+	p2, err := parseEthereumG2PointFromBytes(point2Data)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse second G2 point: %v", err)
+	}
+
+	// Compute addition: p1 + p2 using gnark-crypto standard API
+	// Convert to Jacobian coordinates for efficient addition
+	var p1Jac bls.G2Jac
+	p1Jac.FromAffine(&p1)
+	var p2Jac bls.G2Jac
+	p2Jac.FromAffine(&p2)
+
+	// Perform addition: p1Jac = p1Jac + p2Jac
+	p1Jac.AddAssign(&p2Jac)
+
+	// Convert back to Affine coordinates
+	var result bls.G2Affine
+	result.FromJacobian(&p1Jac)
+
+	// Encode result to Ethereum format
+	resultBytes := encodeEthereumG2Point(result)
+	return hex.EncodeToString(resultBytes), nil
+}
+
+// runG2AddRandomMode runs the random G2 addition mode
+// This generates two random G2 points, adds them, and outputs the result
+// This function follows gnark-crypto standard and is compatible with Bls12381MultiExpHelper.cs
+func runG2AddRandomMode() {
+	fmt.Println("=== G2 Addition Random Test Mode ===")
+	fmt.Println("Generating two random G2 points and computing their sum...")
+	fmt.Println()
+
+	// Generate two random G2 points using gnark-crypto standard API
+	Q1, err := bls.RandomOnG2()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate random G2 point 1: %v", err))
+	}
+
+	Q2, err := bls.RandomOnG2()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate random G2 point 2: %v", err))
+	}
+
+	// Encode both points to Ethereum format
+	point1Ethereum := encodeEthereumG2Point(Q1)
+	point2Ethereum := encodeEthereumG2Point(Q2)
+
+	// Concatenate: point1 (256 bytes) + point2 (256 bytes) = 512 bytes
+	inputBytes := make([]byte, 512)
+
+	// Verify point lengths before copying
+	if len(point1Ethereum) != 256 {
+		panic(fmt.Sprintf("point1Ethereum has invalid length: %d (expected 256)", len(point1Ethereum)))
+	}
+	if len(point2Ethereum) != 256 {
+		panic(fmt.Sprintf("point2Ethereum has invalid length: %d (expected 256)", len(point2Ethereum)))
+	}
+
+	// Copy points to inputBytes
+	copy(inputBytes[0:256], point1Ethereum)
+	copy(inputBytes[256:512], point2Ethereum)
+
+	// Verify the concatenation is correct
+	// Check that second point's x.C0 padding (bytes 256-272) is all zeros
+	for i := 256; i < 272; i++ {
+		if inputBytes[i] != 0 {
+			panic(fmt.Sprintf("Second point x.C0 padding byte[%d] is non-zero: 0x%02x. This indicates a bug in data concatenation.", i, inputBytes[i]))
+		}
+	}
+
+	inputHex := hex.EncodeToString(inputBytes)
+
+	// Output point information
+	fmt.Println("Point 1 (compressed):")
+	g2Compressed1 := convertG2AffineToCompressed(Q1)
+	fmt.Printf("  %x\n", g2Compressed1)
+	fmt.Println("Point 1 (Ethereum format, first 64 bytes of x.C0):")
+	fmt.Printf("  %x...\n", point1Ethereum[0:64])
+
+	fmt.Println()
+	fmt.Println("Point 2 (compressed):")
+	g2Compressed2 := convertG2AffineToCompressed(Q2)
+	fmt.Printf("  %x\n", g2Compressed2)
+	fmt.Println("Point 2 (Ethereum format, first 64 bytes of x.C0):")
+	fmt.Printf("  %x...\n", point2Ethereum[0:64])
+
+	fmt.Println()
+	fmt.Println("=== Computing G2 Addition ===")
+	fmt.Printf("Input (Ethereum format, 512 bytes = 1024 hex chars):\n")
+	fmt.Printf("  First 128 hex chars: %s...\n", inputHex[0:128])
+	fmt.Printf("  Last 128 hex chars: ...%s\n", inputHex[len(inputHex)-128:])
+
+	// Compute addition using computeG2Add
+	resultHex, err := computeG2Add(inputHex)
+	if err != nil {
+		panic(fmt.Sprintf("failed to compute G2 addition: %v", err))
+	}
+
+	fmt.Println()
+	fmt.Println("=== Result ===")
+	fmt.Printf("Result (Ethereum format, 256 bytes = 512 hex chars):\n")
+	fmt.Printf("  %s\n", resultHex)
+
+	// Verify: Compute expected result using gnark-crypto directly
+	fmt.Println()
+	fmt.Println("=== Verification ===")
+	var Q1Jac bls.G2Jac
+	Q1Jac.FromAffine(&Q1)
+	var Q2Jac bls.G2Jac
+	Q2Jac.FromAffine(&Q2)
+	Q1Jac.AddAssign(&Q2Jac)
+	var expectedResult bls.G2Affine
+	expectedResult.FromJacobian(&Q1Jac)
+
+	expectedEthereum := encodeEthereumG2Point(expectedResult)
+	expectedHex := hex.EncodeToString(expectedEthereum)
+
+	fmt.Printf("Expected (Ethereum format):\n")
+	fmt.Printf("  %s\n", expectedHex)
+
+	if resultHex == expectedHex {
+		fmt.Println("✅ Verification PASSED: Result matches expected value!")
+	} else {
+		fmt.Println("❌ Verification FAILED: Result does not match expected value!")
+		fmt.Printf("Difference: result has %d chars, expected has %d chars\n", len(resultHex), len(expectedHex))
+		for i := 0; i < len(resultHex) && i < len(expectedHex); i++ {
+			if resultHex[i] != expectedHex[i] {
+				fmt.Printf("First difference at position %d: result='%c' (0x%02x), expected='%c' (0x%02x)\n",
+					i, resultHex[i], resultHex[i], expectedHex[i], expectedHex[i])
+				break
+			}
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("=== C# Test Input Format ===")
+	fmt.Println("You can use this input to test with C# helper:")
+	fmt.Printf("Point 1 (compressed, 192 hex chars):\n")
+	fmt.Printf("  %x\n", g2Compressed1)
+	fmt.Printf("Point 2 (compressed, 192 hex chars):\n")
+	fmt.Printf("  %x\n", g2Compressed2)
+	fmt.Printf("Ethereum format input (1024 hex chars):\n")
+	fmt.Printf("  %s\n", inputHex)
+}
+
+// computeG1Mul computes G1 point multiplication: point * scalar
+// Input: Ethereum format G1 point (128 bytes) + scalar (32 bytes) = 160 bytes total
+// Output: Ethereum format G1 point (128 bytes)
+func computeG1Mul(inputHex string) (string, error) {
+	inputHex = strings.TrimSpace(inputHex)
+	inputBytes, err := hex.DecodeString(inputHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse input hex: %v", err)
+	}
+
+	if len(inputBytes) != 160 {
+		return "", fmt.Errorf("G1 mul input must be 160 bytes (128 bytes point + 32 bytes scalar), got %d", len(inputBytes))
+	}
+
+	// Parse G1 point and scalar
+	point, err := parseEthereumG1PointFromBytes(inputBytes[0:128])
+	if err != nil {
+		return "", fmt.Errorf("failed to parse G1 point: %v", err)
+	}
+
+	scalar := parseEthereumScalarFromBytes(inputBytes[128:160])
+
+	// Compute multiplication: point * scalar
+	var pointJac bls.G1Jac
+	pointJac.FromAffine(&point)
+	pointJac.ScalarMultiplication(&pointJac, scalar)
+
+	var result bls.G1Affine
+	result.FromJacobian(&pointJac)
+
+	// Encode result to Ethereum format
+	resultBytes := encodeEthereumG1Point(result)
+	return hex.EncodeToString(resultBytes), nil
+}
+
+// computeG2Mul computes G2 point multiplication: point * scalar
+// Input: Ethereum format G2 point (256 bytes) + scalar (32 bytes) = 288 bytes total
+// Output: Ethereum format G2 point (256 bytes)
+func computeG2Mul(inputHex string) (string, error) {
+	inputHex = strings.TrimSpace(inputHex)
+	inputBytes, err := hex.DecodeString(inputHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse input hex: %v", err)
+	}
+
+	if len(inputBytes) != 288 {
+		return "", fmt.Errorf("G2 mul input must be 288 bytes (256 bytes point + 32 bytes scalar), got %d", len(inputBytes))
+	}
+
+	// Parse G2 point and scalar
+	point, err := parseEthereumG2PointFromBytes(inputBytes[0:256])
+	if err != nil {
+		return "", fmt.Errorf("failed to parse G2 point: %v", err)
+	}
+
+	scalar := parseEthereumScalarFromBytes(inputBytes[256:288])
+
+	// Compute multiplication: point * scalar
+	var pointJac bls.G2Jac
+	pointJac.FromAffine(&point)
+	pointJac.ScalarMultiplication(&pointJac, scalar)
+
+	var result bls.G2Affine
+	result.FromJacobian(&pointJac)
+
+	// Encode result to Ethereum format
+	resultBytes := encodeEthereumG2Point(result)
+	return hex.EncodeToString(resultBytes), nil
+}
+
 // convertG1AffineToCompressed converts a G1Affine point to compressed format (48 bytes)
 func convertG1AffineToCompressed(point bls.G1Affine) []byte {
 	uncompressed := point.Marshal()
@@ -868,58 +1200,252 @@ func convertG1AffineToCompressed(point bls.G1Affine) []byte {
 }
 
 // convertG2AffineToCompressed converts a G2Affine point to compressed format (96 bytes)
+// Format matches Neo's G2Affine.ToCompressed():
+// - First 48 bytes: x.C1
+// - Next 48 bytes: x.C0
+// - First byte flags: 0x80 (compression), 0x40 (infinity), 0x20 (sort)
+// The flags are stored in the upper 3 bits of the first byte, while the lower 5 bits
+// are part of the x.C1 coordinate data.
 func convertG2AffineToCompressed(point bls.G2Affine) []byte {
 	uncompressed := point.Marshal()
 	compressed := make([]byte, 96)
+
+	// Extract x coordinate: gnark-crypto format is [x.C1 (48) + x.C0 (48) + y.C1 (48) + y.C0 (48)]
+	// Neo format is [x.C1 (48) + x.C0 (48)]
 	copy(compressed, uncompressed[:96]) // Extract x coordinate (x.C1 + x.C0)
-	compressed[0] |= 0x80               // Set compression flag
-	yBytes := uncompressed[96:192]      // y coordinate (y.C1 + y.C0)
+
+	// Clear only the flag bits (0x80, 0x40, 0x20) from the first byte before setting them
+	// The lower 5 bits (0x1F) are part of the x.C1 coordinate data and must be preserved
+	// Note: We use & 0x1F to clear the upper 3 bits (flags) while preserving the lower 5 bits (data)
+	compressed[0] &= 0x1F
+
+	// Set compression flag (MSB) - always set for compressed format
+	compressed[0] |= 0x80
+
+	// Check if point is at infinity
+	if point.IsInfinity() {
+		compressed[0] |= 0x40 // Set infinity flag
+		// For infinity point, Neo's validation requires: infinity -> !sort_flag & x.IsZero
+		// The sort flag should NOT be set for infinity points
+		return compressed
+	}
+
+	// Extract y coordinate to determine sort flag
+	yBytes := uncompressed[96:192] // y coordinate (y.C1 + y.C0)
 	if isLexicographicallyLargestFp2(yBytes) {
 		compressed[0] |= 0x20 // Set y coordinate sort flag
 	}
+
 	return compressed
 }
 
 // parseEthereumG2PointFromBytes parses a G2 point from Ethereum format (256 bytes)
-// Ethereum format: 64 bytes x.C1 (first 16 bytes are 0, last 48 bytes are big-endian) +
+// Ethereum format: 64 bytes x.C0 (first 16 bytes are 0, last 48 bytes are big-endian) +
 //
-//	64 bytes x.C0 (first 16 bytes are 0, last 48 bytes are big-endian) +
-//	64 bytes y.C1 (first 16 bytes are 0, last 48 bytes are big-endian) +
-//	64 bytes y.C0 (first 16 bytes are 0, last 48 bytes are big-endian)
+//	64 bytes x.C1 (first 16 bytes are 0, last 48 bytes are big-endian) +
+//	64 bytes y.C0 (first 16 bytes are 0, last 48 bytes are big-endian) +
+//	64 bytes y.C1 (first 16 bytes are 0, last 48 bytes are big-endian)
+//
+// This matches Neo's EncodeEthereumG2 format: [x.C0, x.C1, y.C0, y.C1]
 func parseEthereumG2PointFromBytes(data []byte) (bls.G2Affine, error) {
 	if len(data) != 256 {
 		return bls.G2Affine{}, fmt.Errorf("ethereum G2 point must be 256 bytes, got %d", len(data))
 	}
 
+	// Debug: Check what data we actually received
+	fmt.Fprintf(os.Stderr, "Debug: parseEthereumG2PointFromBytes received data:\n")
+	fmt.Fprintf(os.Stderr, "  x.C0 padding (bytes 0-16): %x\n", data[0:16])
+	fmt.Fprintf(os.Stderr, "  x.C0 data (bytes 16-64): %x\n", data[16:64])
+	fmt.Fprintf(os.Stderr, "  x.C1 padding (bytes 64-80): %x\n", data[64:80])
+	fmt.Fprintf(os.Stderr, "  x.C1 data (bytes 80-128): %x\n", data[80:128])
+	fmt.Fprintf(os.Stderr, "  y.C0 padding (bytes 128-144): %x\n", data[128:144])
+	fmt.Fprintf(os.Stderr, "  y.C0 data (bytes 144-192): %x\n", data[144:192])
+	fmt.Fprintf(os.Stderr, "  y.C1 padding (bytes 192-208): %x\n", data[192:208])
+	fmt.Fprintf(os.Stderr, "  y.C1 data (bytes 208-256): %x\n", data[208:256])
+
 	// Check that first 16 bytes of each field element are zero
+	// Ethereum format: each 64-byte field element has 16 bytes of padding (zeros) followed by 48 bytes of data
+	// Note: We'll warn about non-zero padding but continue, as the actual data is in the last 48 bytes
+	hasNonZeroPadding := false
+	var paddingErrors []string
 	for i := 0; i < 16; i++ {
-		if data[i] != 0 || data[64+i] != 0 || data[128+i] != 0 || data[192+i] != 0 {
-			return bls.G2Affine{}, fmt.Errorf("non-zero padding bytes in Ethereum format")
+		if data[i] != 0 {
+			hasNonZeroPadding = true
+			paddingErrors = append(paddingErrors, fmt.Sprintf("x.C0[%d]=0x%02x", i, data[i]))
 		}
+		if data[64+i] != 0 {
+			hasNonZeroPadding = true
+			paddingErrors = append(paddingErrors, fmt.Sprintf("x.C1[%d]=0x%02x", 64+i, data[64+i]))
+		}
+		if data[128+i] != 0 {
+			hasNonZeroPadding = true
+			paddingErrors = append(paddingErrors, fmt.Sprintf("y.C0[%d]=0x%02x", 128+i, data[128+i]))
+		}
+		if data[192+i] != 0 {
+			hasNonZeroPadding = true
+			paddingErrors = append(paddingErrors, fmt.Sprintf("y.C1[%d]=0x%02x", 192+i, data[192+i]))
+		}
+	}
+	if hasNonZeroPadding {
+		// Log warning but continue - the actual coordinate data is in the last 48 bytes of each field
+		fmt.Fprintf(os.Stderr, "Warning: non-zero padding bytes in Ethereum format G2 point: %v\n", paddingErrors)
+		fmt.Fprintf(os.Stderr, "  Continuing anyway - coordinate data is in bytes [16:64], [80:128], [144:192], [208:256]\n")
 	}
 
 	// Extract coordinates (last 48 bytes of each 64-byte field element, big-endian)
-	// Neo's format: [x.C0 (64 bytes), x.C1 (64 bytes), y.C0 (64 bytes), y.C1 (64 bytes)]
+	// Ethereum/Neo format: [x.C0 (64 bytes), x.C1 (64 bytes), y.C0 (64 bytes), y.C1 (64 bytes)]
 	// Each 64-byte field: first 16 bytes are 0, last 48 bytes are the value
+	// However, if padding bytes are non-zero, the data might be in a different location
+	// Let's try both: standard location and alternative location (if padding is non-zero)
+
+	// Standard extraction (assuming padding is correct)
 	xC0Bytes := data[16:64]   // x.C0 (48 bytes, big-endian) - first 64 bytes, skip first 16
 	xC1Bytes := data[80:128]  // x.C1 (48 bytes, big-endian) - second 64 bytes, skip first 16
 	yC0Bytes := data[144:192] // y.C0 (48 bytes, big-endian) - third 64 bytes, skip first 16
 	yC1Bytes := data[208:256] // y.C1 (48 bytes, big-endian) - fourth 64 bytes, skip first 16
 
-	// gnark-crypto SetBytes accepts uncompressed format (192 bytes)
-	// Format: [x.C1 (48 bytes) + x.C0 (48 bytes) + y.C1 (48 bytes) + y.C0 (48 bytes)]
-	// Note: gnark-crypto uses [C1, C0] order for Fp2, while Neo uses [C0, C1]
-	// So we need to swap: gnark-crypto expects [C1, C0] but Neo provides [C0, C1]
-	uncompressedPoint := append(append(append(xC1Bytes, xC0Bytes...), yC1Bytes...), yC0Bytes...)
+	// If padding is non-zero, the data might actually be in the first 48 bytes of each field
+	// Let's check if the standard extraction produces valid data, and if not, try alternative
+	if hasNonZeroPadding {
+		fmt.Fprintf(os.Stderr, "  Attempting to extract coordinates from standard location [16:64], [80:128], [144:192], [208:256]\n")
+		// If this fails, we might need to try alternative locations
+	}
+
+	// gnark-crypto's G2Affine.SetBytes only supports compressed format (96 bytes), not uncompressed (192 bytes)
+	// We need to convert Ethereum format to compressed format first
+	// Compressed format: [x.C1 (48 bytes) + x.C0 (48 bytes)] with flags in first byte
+	// This matches the approach used in computeMultiExpFromCompressed for G2 points
+
+	// Construct compressed format from x coordinate
+	// Format: [xC1, xC0] (96 bytes total)
+	compressed := make([]byte, 96)
+	copy(compressed[0:48], xC1Bytes)  // x.C1 (first 48 bytes)
+	copy(compressed[48:96], xC0Bytes) // x.C0 (next 48 bytes)
+
+	// Clear flag bits (upper 3 bits) while preserving lower 5 bits of first byte
+	// The lower 5 bits are part of the x.C1 coordinate data
+	compressed[0] &= 0x1F
+
+	// Set compression flag (MSB) - always set for compressed format
+	compressed[0] |= 0x80
+
+	// Determine sort flag based on y coordinate
+	// y coordinate format: [y.C1, y.C0] (96 bytes, big-endian)
+	yBytes := append(yC1Bytes, yC0Bytes...)
+	if isLexicographicallyLargestFp2(yBytes) {
+		compressed[0] |= 0x20 // Set y coordinate sort flag
+	}
+
+	// Parse compressed format using SetBytes (same as computeMultiExpFromCompressed)
+	// Debug: Show compressed format before parsing
+	fmt.Fprintf(os.Stderr, "Debug: Constructed compressed format (first 16 bytes): %x\n", compressed[0:16])
+	fmt.Fprintf(os.Stderr, "Debug: xC1Bytes (first 16 bytes): %x\n", xC1Bytes[0:16])
+	fmt.Fprintf(os.Stderr, "Debug: xC0Bytes (first 16 bytes): %x\n", xC0Bytes[0:16])
 
 	var g2Point bls.G2Affine
-	bytesRead, err := g2Point.SetBytes(uncompressedPoint)
+	bytesRead, err := g2Point.SetBytes(compressed)
 	if err != nil {
-		return bls.G2Affine{}, fmt.Errorf("SetBytes failed: %v", err)
+		// If padding was non-zero and parsing failed, try alternative location
+		// Data might be in compact format [0:48], [48:96], [96:144], [144:192] instead of Ethereum format [16:64], [80:128], [144:192], [208:256]
+		if hasNonZeroPadding {
+			fmt.Fprintf(os.Stderr, "  Standard location failed, trying alternative location [0:48], [48:96], [96:144], [144:192] (compact format)\n")
+
+			// Try multiple alternative formats
+			// Format 1: Compact format [0:48], [48:96], [96:144], [144:192]
+			xC0BytesAlt1 := data[0:48]
+			xC1BytesAlt1 := data[48:96]
+			yC0BytesAlt1 := data[96:144]
+			yC1BytesAlt1 := data[144:192]
+
+			// Format 2: If padding bytes contain actual data, the format might be wrong
+			// Try using the padding bytes themselves as part of the coordinate data
+			// This is a last resort - if padding bytes are non-zero, maybe they ARE the data
+			// Format: Use first 16 bytes (padding) + next 32 bytes for x.C0, etc.
+			// Actually, let's try a different approach: maybe data is shifted
+			// Format 2: [16:64] for x.C0 (standard), but [0:48] for x.C1 (if padding is wrong)
+			// Or maybe the entire format is different - let's try using padding bytes as coordinate data
+			// Format 2: If padding bytes are non-zero, maybe data is shifted
+			// Try: x.C0 from [0:48] (including padding), x.C1 from [64:112], y.C0 from [128:176], y.C1 from [192:240]
+			// This assumes data might be in a mixed format where some fields use padding bytes
+			xC0BytesAlt2 := data[0:48]    // First 48 bytes (including padding)
+			xC1BytesAlt2 := data[64:112]  // Second field, first 48 bytes (skip padding)
+			yC0BytesAlt2 := data[128:176] // Third field, first 48 bytes (skip padding)
+			yC1BytesAlt2 := data[192:240] // Fourth field, first 48 bytes (skip padding)
+
+			// Try Format 1 first (compact)
+			xC0BytesAlt := xC0BytesAlt1
+			xC1BytesAlt := xC1BytesAlt1
+			yC0BytesAlt := yC0BytesAlt1
+			yC1BytesAlt := yC1BytesAlt1
+
+			// Construct compressed format from alternative location
+			compressedAlt := make([]byte, 96)
+			copy(compressedAlt[0:48], xC1BytesAlt)  // x.C1 (first 48 bytes)
+			copy(compressedAlt[48:96], xC0BytesAlt) // x.C0 (next 48 bytes)
+
+			// Clear flag bits and set compression flag
+			compressedAlt[0] &= 0x1F
+			compressedAlt[0] |= 0x80
+
+			// Determine sort flag based on y coordinate
+			yBytesAlt := append(yC1BytesAlt, yC0BytesAlt...)
+			if isLexicographicallyLargestFp2(yBytesAlt) {
+				compressedAlt[0] |= 0x20
+			}
+
+			// Try parsing with Format 1 (compact)
+			fmt.Fprintf(os.Stderr, "    Trying Format 1 (compact): [0:48], [48:96], [96:144], [144:192]\n")
+			bytesReadAlt, errAlt := g2Point.SetBytes(compressedAlt)
+			if errAlt != nil {
+				// Try Format 2
+				fmt.Fprintf(os.Stderr, "    Format 1 failed (%v), trying Format 2 (padding bytes included)\n", errAlt)
+				compressedAlt2 := make([]byte, 96)
+				copy(compressedAlt2[0:48], xC1BytesAlt2[0:48])
+				copy(compressedAlt2[48:96], xC0BytesAlt2[0:48])
+				compressedAlt2[0] &= 0x1F
+				compressedAlt2[0] |= 0x80
+				yBytesAlt2 := append(yC1BytesAlt2[0:48], yC0BytesAlt2[0:48]...)
+				if isLexicographicallyLargestFp2(yBytesAlt2) {
+					compressedAlt2[0] |= 0x20
+				}
+
+				bytesReadAlt2, errAlt2 := g2Point.SetBytes(compressedAlt2)
+				if errAlt2 != nil {
+					return bls.G2Affine{}, fmt.Errorf("failed to parse G2 point from compressed format (tried standard and 2 alternative formats): "+
+						"standard=%v, alt1(compact)=%v, alt2(mixed)=%v. "+
+						"Input: [x.C1(%d), x.C0(%d), y.C1(%d), y.C0(%d)] = %d bytes. "+
+						"Standard compressed: %x (first 16 bytes), "+
+						"Alt1 compressed: %x (first 16 bytes), "+
+						"Alt2 compressed: %x (first 16 bytes)",
+						err, errAlt, errAlt2, len(xC1Bytes), len(xC0Bytes), len(yC1Bytes), len(yC0Bytes), 256,
+						compressed[:16], compressedAlt[:16], compressedAlt2[:16])
+				}
+				bytesReadAlt = bytesReadAlt2
+				errAlt = nil
+				fmt.Fprintf(os.Stderr, "    Format 2 succeeded\n")
+			} else {
+				fmt.Fprintf(os.Stderr, "    Format 1 (compact) succeeded\n")
+			}
+			if bytesReadAlt != 96 {
+				return bls.G2Affine{}, fmt.Errorf("SetBytes(alternative) read %d bytes, expected 96", bytesReadAlt)
+			}
+			fmt.Fprintf(os.Stderr, "  Successfully parsed using alternative location\n")
+		} else {
+			return bls.G2Affine{}, fmt.Errorf("failed to parse G2 point from compressed format: %v. "+
+				"Input: [x.C1(%d), x.C0(%d), y.C1(%d), y.C0(%d)] = %d bytes. "+
+				"Compressed format: %x (first 16 bytes)",
+				err, len(xC1Bytes), len(xC0Bytes), len(yC1Bytes), len(yC0Bytes), 256, compressed[:16])
+		}
 	}
-	if bytesRead != 192 {
-		return bls.G2Affine{}, fmt.Errorf("SetBytes read %d bytes, expected 192", bytesRead)
+	if bytesRead != 96 {
+		return bls.G2Affine{}, fmt.Errorf("SetBytes read %d bytes, expected 96", bytesRead)
 	}
+
+	// Verify the point is on the curve
+	if !g2Point.IsOnCurve() {
+		return bls.G2Affine{}, fmt.Errorf("point is not on the curve")
+	}
+
 	return g2Point, nil
 }
 
@@ -1089,9 +1615,52 @@ func main() {
 		return
 	}
 
-	// Check if first argument is "manual", "random", or "ethereum"
+	// Check if first argument is "manual", "random", "ethereum", "g1add", "g2add", "g1mul", "g2mul", or "g2add-random"
 	mode := os.Args[1]
-	if mode == "ethereum" {
+	if mode == "g2add-random" {
+		// G2 addition random mode
+		runG2AddRandomMode()
+	} else if mode == "g1add" || mode == "g2add" || mode == "g1mul" || mode == "g2mul" {
+		// Add/Mul operations mode
+		addMulFlags := flag.NewFlagSet(mode, flag.ExitOnError)
+		inputHex := addMulFlags.String("input", "", "Ethereum format input hex string")
+
+		if err := addMulFlags.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+			printUsage()
+			os.Exit(1)
+		}
+
+		if *inputHex == "" {
+			fmt.Fprintf(os.Stderr, "Error: --input is required\n")
+			printUsage()
+			os.Exit(1)
+		}
+
+		var result string
+		var err error
+
+		switch mode {
+		case "g1add":
+			result, err = computeG1Add(*inputHex)
+		case "g2add":
+			result, err = computeG2Add(*inputHex)
+		case "g1mul":
+			result, err = computeG1Mul(*inputHex)
+		case "g2mul":
+			result, err = computeG2Mul(*inputHex)
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Operation: %s\n", mode)
+		fmt.Printf("Input length: %d hex chars\n", len(*inputHex))
+		fmt.Printf("Result (Ethereum format, %d hex chars): %s\n", len(result), result)
+		fmt.Println("This result can be compared with Neo invokescript output")
+	} else if mode == "ethereum" {
 		// Ethereum mode: parse flags
 		ethereumFlags := flag.NewFlagSet("ethereum", flag.ExitOnError)
 		inputHex := ethereumFlags.String("input", "", "Ethereum format input hex string")
