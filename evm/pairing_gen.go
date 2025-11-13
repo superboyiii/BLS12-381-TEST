@@ -787,6 +787,20 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "        g1mul: 160 bytes (128 bytes point + 32 bytes scalar)\n")
 	fmt.Fprintf(os.Stderr, "        g2mul: 288 bytes (256 bytes point + 32 bytes scalar)\n")
 	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "  Pairing operation (Ethereum format):\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go pairing --input <hex>\n")
+	fmt.Fprintf(os.Stderr, "      - --input: Ethereum format input hex string\n")
+	fmt.Fprintf(os.Stderr, "        Each pair: 384 bytes (128 bytes G1 + 256 bytes G2)\n")
+	fmt.Fprintf(os.Stderr, "        Multiple pairs can be concatenated (must be multiple of 384 bytes)\n")
+	fmt.Fprintf(os.Stderr, "        Result: 32 bytes, last byte is 1 if pairing product is identity, 0 otherwise\n")
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "  Pairing random test mode (generates test scenarios):\n")
+	fmt.Fprintf(os.Stderr, "    go run pairing_gen.go pairing-random\n")
+	fmt.Fprintf(os.Stderr, "      - Generates random G1 and G2 points\n")
+	fmt.Fprintf(os.Stderr, "      - Tests single pair: e(g1, g2)\n")
+	fmt.Fprintf(os.Stderr, "      - Tests multiple pairs with bilinearity: e(g1, g2) * e(-g1, g2) = 1\n")
+	fmt.Fprintf(os.Stderr, "      - Outputs C# array format for Bls12381MultiExpHelper.cs\n")
+	fmt.Fprintf(os.Stderr, "\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
 	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go 5\n")
 	fmt.Fprintf(os.Stderr, "  go run pairing_gen.go manual --g1 b2deb4e364cc09aceb924ebe236d28b5d180e27ee0428697f3d088b7c83637820c3c0c95b83189a6301dbaa405792564 --scalars \"1732363698,436226955,507793302,1540421097\"\n")
@@ -858,6 +872,13 @@ func encodeEthereumG1Point(point bls.G1Affine) []byte {
 
 	// Ethereum format: 64 bytes per field element (first 16 bytes are 0, last 48 bytes are the value)
 	output := make([]byte, 128)
+	// Explicitly zero out padding bytes to ensure they are zero
+	// x padding: bytes 0-15
+	// y padding: bytes 64-79
+	for i := 0; i < 16; i++ {
+		output[i] = 0    // x padding
+		output[64+i] = 0 // y padding
+	}
 	copy(output[16:64], xBytes)  // x: skip first 16 bytes, then 48 bytes
 	copy(output[80:128], yBytes) // y: skip first 16 bytes, then 48 bytes
 
@@ -885,6 +906,14 @@ func encodeEthereumG2Point(point bls.G2Affine) []byte {
 	yC0Bytes := uncompressed[144:192]
 
 	output := make([]byte, 256)
+	// Explicitly zero out all padding bytes to ensure they are zero
+	// Each 64-byte field has 16 bytes of padding at the start
+	for i := 0; i < 16; i++ {
+		output[i] = 0     // x.C0 padding: bytes 0-15
+		output[64+i] = 0  // x.C1 padding: bytes 64-79
+		output[128+i] = 0 // y.C0 padding: bytes 128-143
+		output[192+i] = 0 // y.C1 padding: bytes 192-207
+	}
 	// x.C0: first 64 bytes, skip first 16, then 48 bytes
 	copy(output[16:64], xC0Bytes)
 	// x.C1: second 64 bytes, skip first 16, then 48 bytes
@@ -993,6 +1022,143 @@ func computeG2Add(inputHex string) (string, error) {
 	// Encode result to Ethereum format
 	resultBytes := encodeEthereumG2Point(result)
 	return hex.EncodeToString(resultBytes), nil
+}
+
+// runPairingRandomMode runs the random pairing mode
+// This generates random G1 and G2 points, and can test multiple pairing scenarios:
+// - Single pair: e(g1, g2)
+// - Multiple pairs with bilinearity: e(g1, g2) * e(-g1, g2) = 1
+// This matches Neo's TestBls12PairingAliasMultiplePairs test scenario
+func runPairingRandomMode() {
+	fmt.Println("=== BLS12-381 Pairing Random Test Mode ===")
+	fmt.Println("Generating random G1 and G2 points for pairing test...")
+	fmt.Println()
+
+	// Generate random G1 and G2 points
+	P, err := randomOnG1()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate random G1 point: %v", err))
+	}
+
+	Q, err := bls.RandomOnG2()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate random G2 point: %v", err))
+	}
+
+	// Convert to compressed format for output
+	g1Compressed := convertG1AffineToCompressed(P)
+	g2Compressed := convertG2AffineToCompressed(Q)
+
+	fmt.Println("Generated Points (compressed format):")
+	fmt.Printf("G1 (compressed, 48 bytes, 96 hex chars): %x\n", g1Compressed)
+	fmt.Printf("G2 (compressed, 96 bytes, 192 hex chars): %x\n", g2Compressed)
+	fmt.Println()
+
+	// Test Scenario 1: Single pair e(g1, g2)
+	fmt.Println("=== Test Scenario 1: Single Pair ===")
+	fmt.Println("Computing: e(g1, g2)")
+	singlePairResult, err := bls.Pair([]bls.G1Affine{P}, []bls.G2Affine{Q})
+	if err != nil {
+		panic(fmt.Sprintf("pairing failed: %v", err))
+	}
+	var identity bls.GT
+	identity.SetOne()
+	isIdentity1 := singlePairResult.Equal(&identity)
+	fmt.Printf("Result is identity: %v\n", isIdentity1)
+	fmt.Printf("Pairing result (GT element): %x\n", singlePairResult.Marshal())
+	fmt.Println()
+
+	// Test Scenario 2: Multiple pairs with bilinearity e(g1, g2) * e(-g1, g2) = 1
+	fmt.Println("=== Test Scenario 2: Multiple Pairs (Bilinearity Test) ===")
+	fmt.Println("Computing: e(g1, g2) * e(-g1, g2)")
+
+	// Compute -g1 (negation)
+	var negP bls.G1Affine
+	negP.Neg(&P)
+
+	// Compute first pairing: e(g1, g2)
+	pair1, err := bls.Pair([]bls.G1Affine{P}, []bls.G2Affine{Q})
+	if err != nil {
+		panic(fmt.Sprintf("first pairing failed: %v", err))
+	}
+
+	// Compute second pairing: e(-g1, g2)
+	pair2, err := bls.Pair([]bls.G1Affine{negP}, []bls.G2Affine{Q})
+	if err != nil {
+		panic(fmt.Sprintf("second pairing failed: %v", err))
+	}
+
+	// Multiply: pair1 * pair2 = e(g1, g2) * e(-g1, g2)
+	var product bls.GT
+	product.SetOne()
+	product.Mul(&product, &pair1)
+	product.Mul(&product, &pair2)
+
+	isIdentity2 := product.Equal(&identity)
+	fmt.Printf("Result is identity: %v (expected: true)\n", isIdentity2)
+	if isIdentity2 {
+		fmt.Println("✅ Bilinearity test PASSED: e(g1, g2) * e(-g1, g2) = 1")
+	} else {
+		fmt.Println("❌ Bilinearity test FAILED: e(g1, g2) * e(-g1, g2) ≠ 1")
+	}
+	fmt.Println()
+
+	// Encode points to Ethereum format for Neo compatibility
+	g1Ethereum := encodeEthereumG1Point(P)
+	negG1Ethereum := encodeEthereumG1Point(negP)
+	g2Ethereum := encodeEthereumG2Point(Q)
+
+	// Build input for multiple pairs: [g1, g2] + [-g1, g2]
+	const pairLength = 128 + 256 // 384 bytes
+	multiplePairsInput := make([]byte, pairLength*2)
+	copy(multiplePairsInput[0:128], g1Ethereum)
+	copy(multiplePairsInput[128:384], g2Ethereum)
+	copy(multiplePairsInput[384:512], negG1Ethereum)
+	copy(multiplePairsInput[512:768], g2Ethereum)
+
+	fmt.Println("=== Ethereum Format Input (for Neo Bls12Pairing) ===")
+	fmt.Println("Multiple pairs input (768 bytes = 1536 hex chars):")
+	fmt.Printf("  Pair 1: G1 (128 bytes) + G2 (256 bytes)\n")
+	fmt.Printf("  Pair 2: -G1 (128 bytes) + G2 (256 bytes)\n")
+	fmt.Printf("Input hex: %x\n", multiplePairsInput)
+	fmt.Println()
+
+	// Compute using computePairing to verify
+	inputHex := hex.EncodeToString(multiplePairsInput)
+	result, err := computePairing(inputHex)
+	if err != nil {
+		panic(fmt.Sprintf("computePairing failed: %v", err))
+	}
+
+	fmt.Println("=== Expected Result (from computePairing) ===")
+	fmt.Printf("Result (32 bytes, 64 hex chars): %s\n", result)
+	fmt.Printf("Last byte: 0x%02x (1 = identity, 0 = non-identity)\n", result[len(result)-2:])
+	if result[len(result)-2:] == "01" {
+		fmt.Println("✅ Result correctly identifies as identity!")
+	} else {
+		fmt.Println("❌ Result incorrectly identified as non-identity!")
+	}
+	fmt.Println()
+
+	// Output C# array format for Bls12381MultiExpHelper.cs
+	fmt.Println("=== C# Array Format (copy to Bls12381MultiExpHelper.cs) ===")
+	fmt.Println("// For pairing with multiple pairs (bilinearity test)")
+	fmt.Println("// This tests: e(g1, g2) * e(-g1, g2) = 1")
+	fmt.Print("private static readonly string[] G1_PAIRS = new string[]\n{\n")
+	fmt.Printf("    \"%x\",  // Pair 0: G1 point\n", g1Compressed)
+	fmt.Printf("    \"%x\"   // Pair 1: -G1 point (negation)\n", convertG1AffineToCompressed(negP))
+	fmt.Println("};")
+	fmt.Println()
+	fmt.Print("private static readonly string[] G2_PAIRS = new string[]\n{\n")
+	fmt.Printf("    \"%x\",  // Pair 0: G2 point\n", g2Compressed)
+	fmt.Printf("    \"%x\"   // Pair 1: G2 point (same as pair 0)\n", g2Compressed)
+	fmt.Println("};")
+	fmt.Println()
+	fmt.Println("// Expected result: 32 bytes, last byte = 0x01 (identity)")
+	fmt.Printf("// Expected result hex: %s\n", result)
+	fmt.Println()
+	fmt.Println("// Note: This matches Neo's TestBls12PairingAliasMultiplePairs test scenario")
+	fmt.Println("//       e(g1, g2) * e(-g1, g2) = e(g1, g2) * e(g1, g2)^(-1) = 1")
 }
 
 // runG2AddRandomMode runs the random G2 addition mode
@@ -1184,6 +1350,90 @@ func computeG2Mul(inputHex string) (string, error) {
 	// Encode result to Ethereum format
 	resultBytes := encodeEthereumG2Point(result)
 	return hex.EncodeToString(resultBytes), nil
+}
+
+// computePairing computes BLS12-381 pairing: e(g1_1, g2_1) * e(g1_2, g2_2) * ...
+// Input: Ethereum format pairs, each pair is G1 (128 bytes) + G2 (256 bytes) = 384 bytes
+// Output: 32 bytes, last byte is 1 if pairing result is identity (unit element), 0 otherwise
+// This matches Neo's Bls12Pairing implementation
+func computePairing(inputHex string) (string, error) {
+	inputHex = strings.TrimSpace(inputHex)
+	inputBytes, err := hex.DecodeString(inputHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse input hex: %v", err)
+	}
+	// Create a copy to avoid any potential modifications by gnark-crypto
+	inputBytesCopy := make([]byte, len(inputBytes))
+	copy(inputBytesCopy, inputBytes)
+	inputBytes = inputBytesCopy
+
+	// Each pair is 384 bytes: 128 bytes G1 + 256 bytes G2
+	const pairLength = 128 + 256 // 384 bytes
+	if len(inputBytes) == 0 {
+		// Empty input: return identity (unit element) = 1
+		result := make([]byte, 32)
+		result[31] = 1
+		return hex.EncodeToString(result), nil
+	}
+
+	if len(inputBytes)%pairLength != 0 {
+		return "", fmt.Errorf("pairing input must be multiple of %d bytes (each pair is %d bytes), got %d", pairLength, pairLength, len(inputBytes))
+	}
+
+	// Parse all pairs and compute pairing product
+	var accumulator bls.GT
+	accumulator.SetOne() // Start with identity element
+
+	numPairs := len(inputBytes) / pairLength
+	for i := 0; i < numPairs; i++ {
+		offset := i * pairLength
+		g1Bytes := inputBytes[offset : offset+128]
+		g2Bytes := inputBytes[offset+128 : offset+pairLength]
+
+		// Create copies to avoid any potential modifications to inputBytes by gnark-crypto
+		g1BytesCopy := make([]byte, len(g1Bytes))
+		copy(g1BytesCopy, g1Bytes)
+		g2BytesCopy := make([]byte, len(g2Bytes))
+		copy(g2BytesCopy, g2Bytes)
+
+		// Parse G1 point from Ethereum format (using copy)
+		g1Point, err := parseEthereumG1PointFromBytes(g1BytesCopy)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse G1 point at pair %d: %v", i, err)
+		}
+
+		// Parse G2 point from Ethereum format (using copy)
+		g2Point, err := parseEthereumG2PointFromBytes(g2BytesCopy)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse G2 point at pair %d: %v", i, err)
+		}
+
+		// Compute pairing: e(g1, g2)
+		pairResult, err := bls.Pair([]bls.G1Affine{g1Point}, []bls.G2Affine{g2Point})
+		if err != nil {
+			return "", fmt.Errorf("failed to compute pairing at pair %d: %v", i, err)
+		}
+
+		// Multiply accumulator by pair result: accumulator = accumulator * pairResult
+		accumulator.Mul(&accumulator, &pairResult)
+	}
+
+	// Check if result is identity (unit element)
+	// In gnark-crypto, GT.Identity() is the unit element
+	// We check if accumulator == 1 (identity)
+	var identity bls.GT
+	identity.SetOne()
+	isIdentity := accumulator.Equal(&identity)
+
+	// Encode result: 32 bytes, last byte is 1 if identity, 0 otherwise
+	result := make([]byte, 32)
+	if isIdentity {
+		result[31] = 1
+	} else {
+		result[31] = 0
+	}
+
+	return hex.EncodeToString(result), nil
 }
 
 // convertG1AffineToCompressed converts a G1Affine point to compressed format (48 bytes)
@@ -1615,11 +1865,41 @@ func main() {
 		return
 	}
 
-	// Check if first argument is "manual", "random", "ethereum", "g1add", "g2add", "g1mul", "g2mul", or "g2add-random"
+	// Check if first argument is "manual", "random", "ethereum", "g1add", "g2add", "g1mul", "g2mul", "pairing", "pairing-random", or "g2add-random"
 	mode := os.Args[1]
 	if mode == "g2add-random" {
 		// G2 addition random mode
 		runG2AddRandomMode()
+	} else if mode == "pairing-random" {
+		// Pairing random mode (generates test scenarios including bilinearity test)
+		runPairingRandomMode()
+	} else if mode == "pairing" {
+		// Pairing operation mode
+		pairingFlags := flag.NewFlagSet("pairing", flag.ExitOnError)
+		inputHex := pairingFlags.String("input", "", "Ethereum format input hex string (G1+G2 pairs, each pair is 384 bytes)")
+
+		if err := pairingFlags.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+			printUsage()
+			os.Exit(1)
+		}
+
+		if *inputHex == "" {
+			fmt.Fprintf(os.Stderr, "Error: --input is required\n")
+			printUsage()
+			os.Exit(1)
+		}
+
+		result, err := computePairing(*inputHex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Operation: pairing\n")
+		fmt.Printf("Input length: %d hex chars\n", len(*inputHex))
+		fmt.Printf("Result (32 bytes, 64 hex chars): %s\n", result)
+		fmt.Println("This result can be compared with Neo invokescript output")
 	} else if mode == "g1add" || mode == "g2add" || mode == "g1mul" || mode == "g2mul" {
 		// Add/Mul operations mode
 		addMulFlags := flag.NewFlagSet(mode, flag.ExitOnError)

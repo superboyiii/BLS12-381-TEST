@@ -25,6 +25,7 @@
 #   - g2add: Test G2 addition (Ethereum format)
 #   - g1mul: Test G1 multiplication (Ethereum format)
 #   - g2mul: Test G2 multiplication (Ethereum format)
+#   - pairing: Test BLS12-381 pairing (Ethereum format)
 #
 # Examples:
 #   ./test_bls12381_multiexp_enhanced.sh g1 10 5    # Run 10 G1 tests, max 5 scalars each
@@ -33,6 +34,7 @@
 #   ./test_bls12381_multiexp_enhanced.sh ethereum-g2  # Run Ethereum G2 test vectors
 #   ./test_bls12381_multiexp_enhanced.sh g1add 5    # Run 5 G1 addition tests
 #   ./test_bls12381_multiexp_enhanced.sh g1mul 5    # Run 5 G1 multiplication tests
+#   ./test_bls12381_multiexp_enhanced.sh pairing 5  # Run 5 pairing tests
 # ============================================================================
 
 # set -e  # Disabled to allow better error handling in Windows environment
@@ -62,11 +64,11 @@ MAX_SCALARS="${3:-128}"
 
 # Validate test type
 case "$TEST_TYPE" in
-    g1|g2|ethereum-g1|ethereum-g2|g1add|g2add|g1mul|g2mul)
+    g1|g2|ethereum-g1|ethereum-g2|g1add|g2add|g1mul|g2mul|pairing)
         ;;
     *)
         echo -e "${RED}Error: Invalid test type '$TEST_TYPE'${NC}"
-        echo "Valid test types: g1, g2, ethereum-g1, ethereum-g2, g1add, g2add, g1mul, g2mul"
+        echo "Valid test types: g1, g2, ethereum-g1, ethereum-g2, g1add, g2add, g1mul, g2mul, pairing"
         exit 1
         ;;
 esac
@@ -268,6 +270,10 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
     OPERATION_MODE=""
     EXPECTED_RESULT=""
     INPUT_HEX=""
+    USE_MULTIPLE_PAIRS=false
+    G1_PAIRS_BLOCK=""
+    G2_PAIRS_BLOCK=""
+    EXPECTED_PAIRING_RESULT=""
     
     case "$TEST_TYPE" in
         g1)
@@ -310,6 +316,11 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
                 USE_G2=false
             fi
             ;;
+        pairing)
+            USE_ADD_MUL=true
+            OPERATION_MODE="pairing"
+            USE_G2=false  # Pairing uses both G1 and G2, but we don't need USE_G2 flag
+            ;;
     esac
     
     if [ "$USE_ETHEREUM" = true ]; then
@@ -346,47 +357,95 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
     fi
     
     if [ "$USE_ADD_MUL" = true ]; then
-        # Add/Mul operations test
+        # Add/Mul/Pairing operations test
         echo "Step 1: Generating test data with pairing_gen.go..."
         cd "$EVM_DIR"
-        USE_G2_FLAG=""
-        if [ "$USE_G2" = true ]; then
-            USE_G2_FLAG="--use-g2"
-        fi
-        if ! go run pairing_gen.go random 1 $USE_G2_FLAG > "$TEMP_OUTPUT" 2>&1; then
-            echo -e "${RED}Error: pairing_gen.go execution failed${NC}"
-            cat "$TEMP_OUTPUT"
-            mismatch_count=$((mismatch_count + 1))
-            continue
-        fi
         
-        # Extract point(s) from output
-        if [ "$USE_G2" = true ]; then
-            POINT1_HEX=$(grep -m 1 "^G2 (compressed, 96 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
-            POINT2_HEX="$POINT1_HEX" # Use same point for testing, or generate second
-        else
-            POINT1_HEX=$(grep -m 1 "^G1 (compressed, 48 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
-            POINT2_HEX="$POINT1_HEX" # Use same point for testing
-        fi
-        
-        if [ -z "$POINT1_HEX" ]; then
-            echo -e "${RED}Error: Cannot extract point from pairing_gen.go${NC}"
-            mismatch_count=$((mismatch_count + 1))
-            continue
-        fi
-        
-        # Generate second point for Add operations
-        if [[ "$OPERATION_MODE" == *"add"* ]]; then
-            # Generate another random point
-            if ! go run pairing_gen.go random 1 $USE_G2_FLAG > "$TEMP_OUTPUT" 2>&1; then
-                echo -e "${RED}Error: Failed to generate second point${NC}"
+        if [ "$OPERATION_MODE" = "pairing" ]; then
+            # For pairing, use pairing-random mode to generate test scenarios
+            # This generates e(g1, g2) * e(-g1, g2) = 1 scenario (bilinearity test)
+            if ! go run pairing_gen.go pairing-random > "$TEMP_OUTPUT" 2>&1; then
+                echo -e "${RED}Error: pairing_gen.go pairing-random execution failed${NC}"
+                cat "$TEMP_OUTPUT"
                 mismatch_count=$((mismatch_count + 1))
                 continue
             fi
+            
+            # Extract G1_PAIRS and G2_PAIRS arrays from output
+            # Format: private static readonly string[] G1_PAIRS = new string[] { "hex1", "hex2" };
+            G1_PAIRS_BLOCK=$(awk '/private static readonly string\[\] G1_PAIRS/,/^};/' "$TEMP_OUTPUT")
+            G2_PAIRS_BLOCK=$(awk '/private static readonly string\[\] G2_PAIRS/,/^};/' "$TEMP_OUTPUT")
+            
+            # Extract individual points from the arrays
+            G1_POINT1_HEX=$(echo "$G1_PAIRS_BLOCK" | grep -E '^\s*"' | head -n 1 | sed 's/.*"\(.*\)".*/\1/' | tr -d '[:space:]')
+            G1_POINT2_HEX=$(echo "$G1_PAIRS_BLOCK" | grep -E '^\s*"' | tail -n 1 | sed 's/.*"\(.*\)".*/\1/' | tr -d '[:space:]')
+            G2_POINT1_HEX=$(echo "$G2_PAIRS_BLOCK" | grep -E '^\s*"' | head -n 1 | sed 's/.*"\(.*\)".*/\1/' | tr -d '[:space:]')
+            G2_POINT2_HEX=$(echo "$G2_PAIRS_BLOCK" | grep -E '^\s*"' | tail -n 1 | sed 's/.*"\(.*\)".*/\1/' | tr -d '[:space:]')
+            
+            # Extract expected result from pairing-random output
+            # Look for "Expected result hex:" comment line
+            EXPECTED_PAIRING_RESULT=$(grep -m 1 "Expected result hex:" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            if [ -z "$EXPECTED_PAIRING_RESULT" ]; then
+                # Fallback: extract from "Result (32 bytes, 64 hex chars):" line
+                EXPECTED_PAIRING_RESULT=$(grep -m 1 "^Result (32 bytes, 64 hex chars):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            fi
+            
+            if [ -z "$G1_POINT1_HEX" ] || [ -z "$G1_POINT2_HEX" ] || [ -z "$G2_POINT1_HEX" ] || [ -z "$G2_POINT2_HEX" ]; then
+                echo -e "${RED}Error: Cannot extract G1_PAIRS or G2_PAIRS from pairing_gen.go output${NC}"
+                echo "Debug: G1_PAIRS_BLOCK:"
+                echo "$G1_PAIRS_BLOCK"
+                echo "Debug: G2_PAIRS_BLOCK:"
+                echo "$G2_PAIRS_BLOCK"
+                mismatch_count=$((mismatch_count + 1))
+                continue
+            fi
+            
+            # For pairing with multiple pairs, we use G1_PAIRS and G2_PAIRS arrays
+            # Store them for later use in updating Bls12381MultiExpHelper.cs
+            USE_MULTIPLE_PAIRS=true
+            POINT1_HEX="$G1_POINT1_HEX"  # First G1 point
+            POINT2_HEX="$G2_POINT1_HEX"  # First G2 point (for backward compatibility)
+        else
+            # For Add/Mul operations
+            USE_G2_FLAG=""
             if [ "$USE_G2" = true ]; then
-                POINT2_HEX=$(grep -m 1 "^G2 (compressed, 96 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                USE_G2_FLAG="--use-g2"
+            fi
+            if ! go run pairing_gen.go random 1 $USE_G2_FLAG > "$TEMP_OUTPUT" 2>&1; then
+                echo -e "${RED}Error: pairing_gen.go execution failed${NC}"
+                cat "$TEMP_OUTPUT"
+                mismatch_count=$((mismatch_count + 1))
+                continue
+            fi
+            
+            # Extract point(s) from output
+            if [ "$USE_G2" = true ]; then
+                POINT1_HEX=$(grep -m 1 "^G2 (compressed, 96 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                POINT2_HEX="$POINT1_HEX" # Use same point for testing, or generate second
             else
-                POINT2_HEX=$(grep -m 1 "^G1 (compressed, 48 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                POINT1_HEX=$(grep -m 1 "^G1 (compressed, 48 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                POINT2_HEX="$POINT1_HEX" # Use same point for testing
+            fi
+            
+            if [ -z "$POINT1_HEX" ]; then
+                echo -e "${RED}Error: Cannot extract point from pairing_gen.go${NC}"
+                mismatch_count=$((mismatch_count + 1))
+                continue
+            fi
+            
+            # Generate second point for Add operations
+            if [[ "$OPERATION_MODE" == *"add"* ]]; then
+                # Generate another random point
+                if ! go run pairing_gen.go random 1 $USE_G2_FLAG > "$TEMP_OUTPUT" 2>&1; then
+                    echo -e "${RED}Error: Failed to generate second point${NC}"
+                    mismatch_count=$((mismatch_count + 1))
+                    continue
+                fi
+                if [ "$USE_G2" = true ]; then
+                    POINT2_HEX=$(grep -m 1 "^G2 (compressed, 96 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                else
+                    POINT2_HEX=$(grep -m 1 "^G1 (compressed, 48 bytes):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                fi
             fi
         fi
         
@@ -431,7 +490,68 @@ for ((test_num=1; test_num<=NUM_TESTS; test_num++)); do
         sed -i.bak "s|private static readonly string OPERATION_TYPE = \".*\";|private static readonly string OPERATION_TYPE = \"$OPERATION_MODE\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
         
         # Update points
-        if [ "$USE_G2" = true ]; then
+        if [ "$OPERATION_MODE" = "pairing" ]; then
+            # For pairing, check if we have multiple pairs (from pairing-random mode)
+            if [ "$USE_MULTIPLE_PAIRS" = true ] && [ -n "$G1_PAIRS_BLOCK" ] && [ -n "$G2_PAIRS_BLOCK" ]; then
+                # Update G1_PAIRS and G2_PAIRS arrays for multiple pairs scenario
+                echo "  Updating G1_PAIRS and G2_PAIRS arrays for multiple pairs..."
+                "$PYTHON_CMD" <<PYTHON_SCRIPT
+import re
+import os
+import sys
+
+helper_file = "Bls12381MultiExpHelper.cs"
+if not os.path.exists(helper_file):
+    abs_path = os.path.join("$SCRIPT_DIR", "$HELPER_CS")
+    helper_file = abs_path
+
+with open(helper_file, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# Replace G1_PAIRS array
+# Pattern needs to match: private static readonly string[] G1_PAIRS = Array.Empty<string>();
+# or: private static readonly string[] G1_PAIRS = new string[] { ... };
+g1_pairs_block = """$G1_PAIRS_BLOCK"""
+# Match from G1_PAIRS declaration to the semicolon (including Array.Empty case)
+# Use a flexible pattern that matches everything from declaration to semicolon
+# This handles both single-line and multi-line formats
+# Use .*? (non-greedy) with DOTALL to match across newlines
+pattern_g1 = r'private static readonly string\[\] G1_PAIRS\s*=\s*.*?;'
+# The block from pairing_gen.go includes the full declaration with newlines
+g1_replacement = g1_pairs_block.rstrip()
+# Ensure it ends with semicolon
+if not g1_replacement.rstrip().endswith(';'):
+    g1_replacement += ';'
+# Replace using DOTALL to match across newlines
+content = re.sub(pattern_g1, g1_replacement, content, flags=re.MULTILINE | re.DOTALL)
+
+# Replace G2_PAIRS array
+g2_pairs_block = """$G2_PAIRS_BLOCK"""
+pattern_g2 = r'private static readonly string\[\] G2_PAIRS\s*=\s*.*?;'
+g2_replacement = g2_pairs_block.rstrip()
+if not g2_replacement.rstrip().endswith(';'):
+    g2_replacement += ';'
+content = re.sub(pattern_g2, g2_replacement, content, flags=re.MULTILINE | re.DOTALL)
+
+with open(helper_file, "w", encoding="utf-8") as f:
+    f.write(content)
+PYTHON_SCRIPT
+                if [ $? -eq 0 ]; then
+                    echo "  Updated G1_PAIRS array with 2 points"
+                    echo "  Updated G2_PAIRS array with 2 points"
+                else
+                    echo -e "${RED}Error: Failed to update G1_PAIRS or G2_PAIRS arrays${NC}"
+                    mismatch_count=$((mismatch_count + 1))
+                    continue
+                fi
+            else
+                # For single pair, update G1_HEX and G2_HEX
+                sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$POINT1_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$POINT2_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                echo "  Updated G1_HEX: ${POINT1_HEX:0:32}..."
+                echo "  Updated G2_HEX: ${POINT2_HEX:0:32}..."
+            fi
+        elif [ "$USE_G2" = true ]; then
             # Update G2_HEX (fallback)
             sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$POINT1_HEX\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
             # Update G2_POINTS array first element - find the line with G2_POINTS array and replace first quoted string
@@ -618,7 +738,20 @@ print(json.dumps(request))
         fi
         
         # Extract expected result from pairing_gen.go output
-        EXPECTED_RESULT=$(grep -m 1 "^Result (Ethereum format," "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+        if [ "$OPERATION_MODE" = "pairing" ]; then
+            # Pairing result format: 32 bytes (64 hex chars)
+            # First try to get from pairing-random mode output (if available)
+            if [ -n "$EXPECTED_PAIRING_RESULT" ]; then
+                EXPECTED_RESULT="$EXPECTED_PAIRING_RESULT"
+                echo "  Using expected result from pairing-random mode: $EXPECTED_RESULT"
+            else
+                # Fallback: extract from pairing mode output
+                EXPECTED_RESULT=$(grep -m 1 "^Result (32 bytes, 64 hex chars):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            fi
+        else
+            # Add/Mul result format: Ethereum format
+            EXPECTED_RESULT=$(grep -m 1 "^Result (Ethereum format," "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+        fi
         if [ -z "$EXPECTED_RESULT" ]; then
             echo -e "${YELLOW}Warning: Cannot extract expected result from pairing_gen.go${NC}"
             echo -e "${YELLOW}Actual result from Neo: ${ACTUAL_RESULT:0:64}...${NC}"

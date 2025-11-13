@@ -74,7 +74,7 @@ public class Bls12381MultiExpHelper
     // ============================================
     // Configuration: Operation Type
     // ============================================
-    // Operation types: "multiexp", "g1add", "g2add", "g1mul", "g2mul"
+    // Operation types: "multiexp", "g1add", "g2add", "g1mul", "g2mul", "pairing"
     private static readonly string OPERATION_TYPE = "g2add";
     
     // For Add operations: second point (compressed format)
@@ -82,6 +82,13 @@ public class Bls12381MultiExpHelper
     private static readonly string G1_SECOND_POINT_HEX = "a195fab58325ffd54c08d3b180d2275ca2b45ab91623a5d6b330d88d25f0754b7259e710636296e583c8be33e968860d"; // Same as G1_HEX for testing
     private static readonly string G2_SECOND_POINT_HEX = "95d7dc07e5eaf185910d9fad2dd69fabb971b3113540a4a411b1d568f5bb6b1fa1bac6bb97a638b204fe5bbac6be140a10bacf59b3e520f1d9ab073377b8c2718ed556852004eb6cec6e153cbbae4e1891a05f5dbae38cead62004d3b37e5f36"; // Same as G2_HEX for testing
     private static readonly BigInteger MUL_SCALAR = 2; // Scalar for Mul operations
+    
+    // For Pairing operations: G1 and G2 point pairs (compressed format)
+    // Each pair is (G1 point, G2 point)
+    // G1_PAIRS and G2_POINTS should have the same length
+    // If empty, will use G1_HEX and G2_HEX as a single pair
+    private static readonly string[] G1_PAIRS = Array.Empty<string>(); // Will be populated by test script
+    private static readonly string[] G2_PAIRS = Array.Empty<string>(); // Will be populated by test script
 
     // ============================================
 
@@ -436,6 +443,106 @@ public class Bls12381MultiExpHelper
     }
 
     /// <summary>
+    /// Get G1 point for pairing at index (from G1_PAIRS or G1_HEX)
+    /// </summary>
+    private static string GetG1PairHex(int index)
+    {
+        if (G1_PAIRS.Length > 0)
+        {
+            return G1_PAIRS[index % G1_PAIRS.Length];
+        }
+        return G1_HEX;
+    }
+
+    /// <summary>
+    /// Get G2 point for pairing at index (from G2_PAIRS or G2_HEX)
+    /// </summary>
+    private static string GetG2PairHex(int index)
+    {
+        if (G2_PAIRS.Length > 0)
+        {
+            return G2_PAIRS[index % G2_PAIRS.Length];
+        }
+        return G2_HEX;
+    }
+
+    /// <summary>
+    /// Create script to call bls12_pairing (Ethereum format)
+    /// Input: Multiple pairs, each pair is G1 (128 bytes) + G2 (256 bytes) = 384 bytes
+    /// Output: 32 bytes, last byte is 1 if pairing product is identity, 0 otherwise
+    /// </summary>
+    public static byte[] CreatePairingScript()
+    {
+        using ScriptBuilder script = new();
+        var cryptoLibHash = NativeContract.CryptoLib.Hash;
+        
+        // Determine number of pairs
+        int numPairs;
+        if (G1_PAIRS.Length > 0 && G2_PAIRS.Length > 0)
+        {
+            if (G1_PAIRS.Length != G2_PAIRS.Length)
+            {
+                throw new InvalidOperationException(
+                    $"G1_PAIRS and G2_PAIRS must have the same length. " +
+                    $"G1_PAIRS.Length = {G1_PAIRS.Length}, G2_PAIRS.Length = {G2_PAIRS.Length}");
+            }
+            numPairs = G1_PAIRS.Length;
+        }
+        else
+        {
+            // Use single pair from G1_HEX and G2_HEX
+            numPairs = 1;
+        }
+        
+        // Build input: concatenate all pairs in Ethereum format
+        const int Bls12G1EncodedLength = 128;
+        const int Bls12G2EncodedLength = 256;
+        const int pairLength = Bls12G1EncodedLength + Bls12G2EncodedLength; // 384 bytes
+        byte[] inputBytes = new byte[numPairs * pairLength];
+        
+        for (int i = 0; i < numPairs; i++)
+        {
+            int offset = i * pairLength;
+            
+            // Get G1 point (compressed format) and convert to Ethereum format
+            string g1Hex = GetG1PairHex(i);
+            if (g1Hex.Length != 96)
+            {
+                throw new InvalidOperationException(
+                    $"G1 point at pair {i} must be 96 hex characters (48 bytes), got {g1Hex.Length}");
+            }
+            byte[] g1Compressed = Convert.FromHexString(g1Hex);
+            G1Affine g1Point = G1Affine.FromCompressed(g1Compressed);
+            byte[] g1Ethereum = EncodeEthereumG1Point(g1Point);
+            
+            // Get G2 point (compressed format) and convert to Ethereum format
+            string g2Hex = GetG2PairHex(i);
+            if (g2Hex.Length != 192)
+            {
+                throw new InvalidOperationException(
+                    $"G2 point at pair {i} must be 192 hex characters (96 bytes), got {g2Hex.Length}");
+            }
+            byte[] g2Compressed = Convert.FromHexString(g2Hex);
+            G2Affine g2Point = G2Affine.FromCompressed(g2Compressed);
+            byte[] g2Ethereum = EncodeEthereumG2Point(g2Point);
+            
+            // Copy to input: G1 (128 bytes) + G2 (256 bytes)
+            g1Ethereum.CopyTo(inputBytes, offset);
+            g2Ethereum.CopyTo(inputBytes, offset + Bls12G1EncodedLength);
+        }
+        
+        script.EmitPush(inputBytes);
+        script.EmitPush(1);
+        script.Emit(OpCode.PACK);
+        script.EmitPush(CallFlags.All);
+        script.EmitPush("bls12_pairing");
+        script.EmitPush(cryptoLibHash);
+        script.EmitSysCall(ApplicationEngine.System_Contract_Call);
+        
+        return script.ToArray();
+    }
+
+    /// <summary>
     /// Create script to call bls12_g2mul (Ethereum format)
     /// Input: G2 point (256 bytes) + scalar (32 bytes) = 288 bytes total
     /// </summary>
@@ -597,6 +704,10 @@ public class Bls12381MultiExpHelper
                     script = CreateG2MulScript();
                     operationName = "bls12_g2mul";
                     break;
+                case "pairing":
+                    script = CreatePairingScript();
+                    operationName = "bls12_pairing";
+                    break;
                 case "multiexp":
                 default:
                     // Validate configuration for MultiExp
@@ -653,7 +764,7 @@ public class Bls12381MultiExpHelper
             Console.WriteLine($"=== {operationName} Call Script Generated ===");
             Console.WriteLine();
             
-            // For Add/Mul operations, show operation info
+            // For Add/Mul/Pairing operations, show operation info
             if (OPERATION_TYPE.ToLower() != "multiexp")
             {
                 Console.WriteLine($"Operation: {operationName}");
@@ -664,6 +775,11 @@ public class Bls12381MultiExpHelper
                 else if (OPERATION_TYPE.ToLower().Contains("mul"))
                 {
                     Console.WriteLine($"  Multiplying {(USE_G2 ? "G2" : "G1")} point by scalar");
+                }
+                else if (OPERATION_TYPE.ToLower() == "pairing")
+                {
+                    int numPairs = (G1_PAIRS.Length > 0 && G2_PAIRS.Length > 0) ? G1_PAIRS.Length : 1;
+                    Console.WriteLine($"  Pairing {numPairs} G1-G2 pair(s)");
                 }
             }
             else
@@ -748,6 +864,35 @@ public class Bls12381MultiExpHelper
                     byte[] inputBytes = new byte[288];
                     pointEthereum.CopyTo(inputBytes, 0);
                     scalarBytes.CopyTo(inputBytes, 256);
+                    inputHex = Convert.ToHexString(inputBytes);
+                }
+                else if (OPERATION_TYPE.ToLower() == "pairing")
+                {
+                    // Build pairing input: concatenate all pairs in Ethereum format
+                    int numPairs = (G1_PAIRS.Length > 0 && G2_PAIRS.Length > 0) ? G1_PAIRS.Length : 1;
+                    const int Bls12G1EncodedLength = 128;
+                    const int Bls12G2EncodedLength = 256;
+                    const int pairLength = Bls12G1EncodedLength + Bls12G2EncodedLength; // 384 bytes
+                    byte[] inputBytes = new byte[numPairs * pairLength];
+                    
+                    for (int i = 0; i < numPairs; i++)
+                    {
+                        int offset = i * pairLength;
+                        
+                        string g1Hex = GetG1PairHex(i);
+                        byte[] g1Compressed = Convert.FromHexString(g1Hex);
+                        G1Affine g1Point = G1Affine.FromCompressed(g1Compressed);
+                        byte[] g1Ethereum = EncodeEthereumG1Point(g1Point);
+                        
+                        string g2Hex = GetG2PairHex(i);
+                        byte[] g2Compressed = Convert.FromHexString(g2Hex);
+                        G2Affine g2Point = G2Affine.FromCompressed(g2Compressed);
+                        byte[] g2Ethereum = EncodeEthereumG2Point(g2Point);
+                        
+                        g1Ethereum.CopyTo(inputBytes, offset);
+                        g2Ethereum.CopyTo(inputBytes, offset + Bls12G1EncodedLength);
+                    }
+                    
                     inputHex = Convert.ToHexString(inputBytes);
                 }
                 
