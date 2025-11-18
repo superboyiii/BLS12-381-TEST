@@ -125,15 +125,28 @@ public class Bls12381MultiExpHelper
     private static string GetPointHex(int index)
     {
         // Determine if we should use G2 based on OPERATION_TYPE or USE_G2
-        bool useG2;
+        bool useG2 = USE_G2;
         if (!string.IsNullOrEmpty(OPERATION_TYPE))
         {
-            string opType = OPERATION_TYPE.ToLower();
-            useG2 = opType == "g2add" || opType == "g2mul";
-        }
-        else
-        {
-            useG2 = USE_G2;
+            string opType = OPERATION_TYPE.ToLowerInvariant();
+            switch (opType)
+            {
+                case "g2add":
+                case "g2mul":
+                    useG2 = true;
+                    break;
+                case "g1add":
+                case "g1mul":
+                    useG2 = false;
+                    break;
+                case "multiexp":
+                case "pairing":
+                    // keep existing USE_G2 flag
+                    break;
+                default:
+                    // fall back to USE_G2 for any other modes
+                    break;
+            }
         }
         
         string[] points = useG2 ? G2_POINTS : G1_POINTS;

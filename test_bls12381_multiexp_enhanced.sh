@@ -915,6 +915,7 @@ print(json.dumps(request))
     else
         sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = false;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
     fi
+    sed -i.bak "s|private static readonly string OPERATION_TYPE = \".*\";|private static readonly string OPERATION_TYPE = \"multiexp\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
     
     if [ "$USE_MULTIPLE_POINTS" = true ]; then
         if [ "$USE_G2" = true ]; then
