@@ -33,20 +33,12 @@ public class Bls12381MultiExpHelper
     // If you have multiple different points, add them here
     // If you only have one point, it will be repeated for all pairs
     // Example: Use different points for comprehensive testing
-    private static readonly string[] G1_POINTS = new string[]
-    {
-        "a195fab58325ffd54c08d3b180d2275ca2b45ab91623a5d6b330d88d25f0754b7259e710636296e583c8be33e968860d",
-        // Add more G1 points here if needed for testing different points
-    };
+    private static readonly string[] G1_POINTS = Array.Empty<string>();
 
     // G2 points array (each point is 96 bytes, 192 hex characters)
     // If you have multiple different points, add them here
     // If you only have one point, it will be repeated for all pairs
-    private static readonly string[] G2_POINTS = new string[]
-    {
-        "ab22c09dcc1bd0fe96227e42a31a61ea3250827a36cb16ae2fecbcc246b26adcd26ab339f6e65fb8b649b58ad084086517fe0917791401e52703d1317dfe5db1b8b9c7a189f4501969d303bd0f359e13ade27fb3bc1143214311f8581bcebabc",
-        // Add more G2 points here if needed for testing different points
-    };
+    private static readonly string[] G2_POINTS = Array.Empty<string>();
 
     // Scalar values array (each value corresponds to a point)
     // 
@@ -61,21 +53,21 @@ public class Bls12381MultiExpHelper
     //
     // For more details, see: neo/scripts/SCALAR_SELECTION_GUIDE.md
     //
-    private static readonly BigInteger[] SCALARS = new BigInteger[] { 1583818600, 259712423, 351930380, 672431045, 1472502201, 1412881703, 1986147645, 40099964, 142141369, 732322170, 933771271, 65086840, 1184612915, 1680742504, 1158217810, 2039254395, 1416164542, 2001641051, 2130393976, 638429679, 1599045576, 714952986, 640858308, 1656854782, 1266185637, 1068163509, 1092415352, 639808918, 1902890949, 416042511, 616982101, 1316086158, 1632105853, 2120684624, 729259342, 1053306010, 656282246, 47399725, 842859189, 1455693148, 79808309, 1612795530, 1956796088, 2044798900, 352651851, 218623658, 731756968, 1792731369, 718146579, 432156565, 1303415108, 761784416, 1121530192, 974705024, 592267398, 2014094771, 1503133634, 993560109, 1065210562, 207569219, 1161251998, 974218387, 1289815564, 1544407688, 1379403943, 2059038431, 1615325352, 1638777115, 1365858113, 2128484506, 1908622647, 530845493, 486591571, 1380970200, 403596093, 1115521402, 45588979 };
-    
+    private static readonly BigInteger[] SCALARS = new BigInteger[] { 1337 };
+
     // Whether to use G2 point (true = G2, false = G1)
-    private static readonly bool USE_G2 = false;
+    private static readonly bool USE_G2 = true;
     
     // Backward compatibility: Legacy single point support
     // If G1_POINTS or G2_POINTS is empty, these will be used
-    private static readonly string G1_HEX = "a195fab58325ffd54c08d3b180d2275ca2b45ab91623a5d6b330d88d25f0754b7259e710636296e583c8be33e968860d";
-    private static readonly string G2_HEX = "ab22c09dcc1bd0fe96227e42a31a61ea3250827a36cb16ae2fecbcc246b26adcd26ab339f6e65fb8b649b58ad084086517fe0917791401e52703d1317dfe5db1b8b9c7a189f4501969d303bd0f359e13ade27fb3bc1143214311f8581bcebabc";
+    private static readonly string G1_HEX = "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb";
+    private static readonly string G2_HEX = "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
     // ============================================
     // Configuration: Operation Type
     // ============================================
     // Operation types: "multiexp", "g1add", "g2add", "g1mul", "g2mul", "pairing"
-    private static readonly string OPERATION_TYPE = "g2add";
+    private static readonly string OPERATION_TYPE = "multiexp";
     
     // For Add operations: second point (compressed format)
     // For Mul operations: scalar value

@@ -746,6 +746,16 @@ func runManualMode(g1Hex, g2Hex string, scalarsStr string, useG2 bool) error {
 		expectedLength = 192
 	}
 	fmt.Printf("MultiExp result (compressed, %d hex chars): %s\n", expectedLength, result)
+
+	if uncompressedHex, err := compressedToUncompressedHex(result, useG2); err == nil {
+		uncompressedBytes := 96
+		if useG2 {
+			uncompressedBytes = 192
+		}
+		fmt.Printf("MultiExp result (uncompressed, %d bytes = %d hex chars): %s\n", uncompressedBytes, uncompressedBytes*2, uncompressedHex)
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: unable to decode uncompressed result: %v\n", err)
+	}
 	fmt.Println("This result can be compared with Neo invokescript output")
 
 	return nil
@@ -1447,6 +1457,35 @@ func convertG1AffineToCompressed(point bls.G1Affine) []byte {
 		compressed[0] |= 0x20 // Set y coordinate sort flag
 	}
 	return compressed
+}
+
+// compressedToUncompressedHex converts a compressed point hex string back to the
+// uncompressed hex form (96 bytes for G1, 192 bytes for G2) for display.
+func compressedToUncompressedHex(compressedHex string, useG2 bool) (string, error) {
+	bytes, err := hex.DecodeString(strings.TrimSpace(compressedHex))
+	if err != nil {
+		return "", fmt.Errorf("invalid compressed hex: %w", err)
+	}
+
+	if useG2 {
+		if len(bytes) != 96 {
+			return "", fmt.Errorf("compressed G2 value must be 96 bytes, got %d", len(bytes))
+		}
+		var point bls.G2Affine
+		if _, err := point.SetBytes(bytes); err != nil {
+			return "", fmt.Errorf("failed to parse compressed G2: %w", err)
+		}
+		return hex.EncodeToString(point.Marshal()), nil
+	}
+
+	if len(bytes) != 48 {
+		return "", fmt.Errorf("compressed G1 value must be 48 bytes, got %d", len(bytes))
+	}
+	var point bls.G1Affine
+	if _, err := point.SetBytes(bytes); err != nil {
+		return "", fmt.Errorf("failed to parse compressed G1: %w", err)
+	}
+	return hex.EncodeToString(point.Marshal()), nil
 }
 
 // convertG2AffineToCompressed converts a G2Affine point to compressed format (96 bytes)

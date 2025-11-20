@@ -64,11 +64,11 @@ MAX_SCALARS="${3:-128}"
 
 # Validate test type
 case "$TEST_TYPE" in
-    g1|g2|ethereum-g1|ethereum-g2|g1add|g2add|g1mul|g2mul|pairing)
+    g1|g2|ethereum-g1|ethereum-g2|g1add|g2add|g1mul|g2mul|pairing|boundary)
         ;;
     *)
         echo -e "${RED}Error: Invalid test type '$TEST_TYPE'${NC}"
-        echo "Valid test types: g1, g2, ethereum-g1, ethereum-g2, g1add, g2add, g1mul, g2mul, pairing"
+        echo "Valid test types: g1, g2, ethereum-g1, ethereum-g2, g1add, g2add, g1mul, g2mul, pairing, boundary"
         exit 1
         ;;
 esac
@@ -237,8 +237,266 @@ TEMP_OUTPUT=$(mktemp)
 HELPER_BACKUP=$(mktemp)
 FAILED_TEST_LOG="$NEO_SCRIPTS_DIR/failed_tests_$(date +%Y%m%d_%H%M%S).log"
 
+BOUNDARY_CASES=(
+    "name=g1_min_scalar_one|use_g2=false|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=1"
+    "name=g1_scalar_intmax|use_g2=false|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=2147483647"
+    "name=g1_neg_y_bit|use_g2=false|point=b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=123456789,1"
+    "name=g1_infinity|use_g2=false|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalars=987654321"
+    "name=g2_min_scalar_one|use_g2=true|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=1"
+    "name=g2_scalar_intmax|use_g2=true|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=2147483647"
+    "name=g2_neg_y_bit|use_g2=true|point=b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=2147483647,2"
+    "name=g2_infinity|use_g2=true|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalars=1337"
+)
+
 # Backup original file
 cp "$SCRIPT_DIR/$HELPER_CS" "$HELPER_BACKUP"
+
+run_boundary_tests() {
+    echo -e "${CYAN}=== Running Boundary Test Suite ===${NC}"
+    local total_cases=${#BOUNDARY_CASES[@]}
+    if [ $total_cases -eq 0 ]; then
+        echo "No boundary cases defined."
+        return
+    fi
+
+    mismatch_count=0
+    success_count=0
+    local case_index=0
+
+    for entry in "${BOUNDARY_CASES[@]}"; do
+        case_index=$((case_index + 1))
+        local case_name=""
+        local case_use_g2="false"
+        local case_point=""
+        local case_scalars=""
+
+        IFS='|' read -r -a parts <<< "$entry"
+        for part in "${parts[@]}"; do
+            local key=${part%%=*}
+            local value=${part#*=}
+            case "$key" in
+                name) case_name="$value" ;;
+                use_g2) case_use_g2="$value" ;;
+                point) case_point="$value" ;;
+                scalars) case_scalars="$value" ;;
+            esac
+        done
+
+        echo -e "${CYAN}--- Boundary Case $case_index/$total_cases: $case_name ---${NC}"
+
+        if [ -z "$case_point" ] || [ -z "$case_scalars" ]; then
+            echo -e "${RED}Error: boundary case $case_name missing point or scalars${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+
+        echo "Point (compressed): ${case_point:0:64}..."
+        echo "Scalars: $case_scalars"
+
+        cd "$EVM_DIR"
+        if [ "$case_use_g2" = true ]; then
+            if ! go run pairing_gen.go manual --g2 "$case_point" --scalars "$case_scalars" --use-g2 > "$TEMP_OUTPUT" 2>&1; then
+                echo -e "${RED}Error: pairing_gen.go manual (G2) failed for $case_name${NC}"
+                cat "$TEMP_OUTPUT"
+                mismatch_count=$((mismatch_count + 1))
+                cd "$SCRIPT_DIR"
+                continue
+            fi
+        else
+            if ! go run pairing_gen.go manual --g1 "$case_point" --scalars "$case_scalars" > "$TEMP_OUTPUT" 2>&1; then
+                echo -e "${RED}Error: pairing_gen.go manual (G1) failed for $case_name${NC}"
+                cat "$TEMP_OUTPUT"
+                mismatch_count=$((mismatch_count + 1))
+                cd "$SCRIPT_DIR"
+                continue
+            fi
+        fi
+        cd "$SCRIPT_DIR"
+
+        local EXPECTED_RESULT=$(grep -m 1 "MultiExp result (compressed" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+        if [ -z "$EXPECTED_RESULT" ]; then
+            echo -e "${RED}Error: cannot extract expected result for $case_name${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            continue
+        fi
+        echo "Expected (compressed): ${EXPECTED_RESULT:0:64}..."
+
+        cd "$SCRIPT_DIR/$HELPER_DIR"
+        HELPER_CS_FILE="Bls12381MultiExpHelper.cs"
+        cp "$HELPER_BACKUP" "$HELPER_CS_FILE"
+
+        "$PYTHON_CMD" <<PYTHON_SCRIPT
+import re
+from pathlib import Path
+
+path = Path("Bls12381MultiExpHelper.cs")
+text = path.read_text(encoding="utf-8")
+
+text, _ = re.subn(r'private static readonly string\[\] G1_POINTS\s*=\s*new\s*string\[\]\s*\{.*?\};',
+                  'private static readonly string[] G1_POINTS = Array.Empty<string>();',
+                  text, count=1, flags=re.S)
+text, _ = re.subn(r'private static readonly string\[\] G2_POINTS\s*=\s*new\s*string\[\]\s*\{.*?\};',
+                  'private static readonly string[] G2_POINTS = Array.Empty<string>();',
+                  text, count=1, flags=re.S)
+
+path.write_text(text, encoding="utf-8")
+PYTHON_SCRIPT
+
+        if [ "$case_use_g2" = true ]; then
+            sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = true;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+            sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+        else
+            sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = false;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+            sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+        fi
+        sed -i.bak "s|private static readonly string OPERATION_TYPE = \".*\";|private static readonly string OPERATION_TYPE = \"multiexp\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+
+        local SCALARS_CSHARP=$(echo "$case_scalars" | sed 's/,/, /g')
+        sed -i.bak "s|private static readonly BigInteger\[\] SCALARS = new BigInteger\[\] { .* };|private static readonly BigInteger[] SCALARS = new BigInteger[] { $SCALARS_CSHARP };|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+
+        if ! dotnet run --project Bls12381MultiExpHelper.csproj > "$TEMP_OUTPUT" 2>&1; then
+            echo -e "${RED}Error: dotnet run failed for $case_name${NC}"
+            cat "$TEMP_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        local BASE64_SCRIPT=$(grep -A 1 "Base64 encoding (for Neo CLI):" "$TEMP_OUTPUT" | tail -n 1 | tr -d '[:space:]')
+        if [ -z "$BASE64_SCRIPT" ]; then
+            echo -e "${RED}Error: cannot extract Base64 script for $case_name${NC}"
+            cat "$TEMP_OUTPUT"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        if [ "$JSON_PARSER" = "jq" ]; then
+            RPC_REQUEST=$(jq -n \
+                --arg script "$BASE64_SCRIPT" \
+                '{
+                    jsonrpc: "2.0",
+                    id: 1,
+                    method: "invokescript",
+                    params: [$script, [], false]
+                }')
+        else
+            RPC_REQUEST=$(echo "$BASE64_SCRIPT" | "$JSON_PARSER" -c "
+import json
+import sys
+script = sys.stdin.read().strip()
+request = {
+    'jsonrpc': '2.0',
+    'id': 1,
+    'method': 'invokescript',
+    'params': [script, [], False]
+}
+print(json.dumps(request))
+")
+        fi
+
+        RPC_RESPONSE=$(curl -s -X POST "$RPC_URL" \
+            -H "Content-Type: application/json" \
+            -d "$RPC_REQUEST")
+
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: RPC call failed for $case_name${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        local RPC_ERROR=$(json_get "$RPC_RESPONSE" ".error" "")
+        if [ -n "$RPC_ERROR" ] && [ "$RPC_ERROR" != "null" ]; then
+            echo -e "${RED}Error: RPC returned error for $case_name: $RPC_ERROR${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        local STATE=$(json_get "$RPC_RESPONSE" ".result.state" "")
+        if [ "$STATE" != "HALT" ]; then
+            local EXCEPTION=$(json_get "$RPC_RESPONSE" ".result.exception" "unknown")
+            echo -e "${RED}Error: Script execution failed for $case_name, state: $STATE, exception: $EXCEPTION${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        local STACK_VALUE=$(json_get "$RPC_RESPONSE" ".result.stack[0].value" "")
+        if [ -z "$STACK_VALUE" ] || [ "$STACK_VALUE" = "null" ]; then
+            echo -e "${RED}Error: Cannot extract result from stack for $case_name${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        local ACTUAL_RESULT=""
+        if command -v base64 >/dev/null 2>&1; then
+            ACTUAL_RESULT=$(echo "$STACK_VALUE" | base64 -d 2>/dev/null | xxd -p -c 256 | tr -d '\n' 2>/dev/null)
+            if [ $? -ne 0 ] || [ -z "$ACTUAL_RESULT" ]; then
+                ACTUAL_RESULT=$(echo "$STACK_VALUE" | base64 -D 2>/dev/null | xxd -p -c 256 | tr -d '\n' 2>/dev/null)
+            fi
+        else
+            ACTUAL_RESULT=$("$PYTHON_CMD" - <<'PY_SCRIPT'
+import base64, sys, binascii
+data = sys.stdin.read().strip()
+try:
+    decoded = base64.b64decode(data)
+    print(binascii.hexlify(decoded).decode())
+except Exception:
+    print("")
+PY_SCRIPT
+)
+        fi
+
+        if [ -z "$ACTUAL_RESULT" ]; then
+            echo -e "${RED}Error: Cannot convert result format for $case_name${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            cd "$SCRIPT_DIR"
+            continue
+        fi
+
+        echo "Expected: ${EXPECTED_RESULT:0:64}..."
+        echo "Actual  : ${ACTUAL_RESULT:0:64}..."
+
+        if [ "$EXPECTED_RESULT" = "$ACTUAL_RESULT" ]; then
+            echo -e "${GREEN}✓ $case_name passed${NC}"
+            success_count=$((success_count + 1))
+        else
+            echo -e "${RED}✗ $case_name failed${NC}"
+            mismatch_count=$((mismatch_count + 1))
+            {
+                echo "=========================================="
+                echo "Boundary Case: $case_name - $(date)"
+                echo "=========================================="
+                echo "Use G2: $case_use_g2"
+                echo "Point: $case_point"
+                echo "Scalars: $case_scalars"
+                echo "Expected: $EXPECTED_RESULT"
+                echo "Actual  : $ACTUAL_RESULT"
+                echo ""
+            } >> "$FAILED_TEST_LOG"
+        fi
+
+        cd "$SCRIPT_DIR"
+        echo ""
+    done
+
+    echo -e "${CYAN}=== Boundary Suite Complete ===${NC}"
+    echo -e "${GREEN}Passed: $success_count${NC}"
+    echo -e "${RED}Failed: $mismatch_count${NC}"
+
+    if [ $mismatch_count -eq 0 ]; then
+        exit 0
+    else
+        exit 1
+    fi
+}
+
+if [ "$TEST_TYPE" = "boundary" ]; then
+    run_boundary_tests
+fi
 
 # Cleanup function
 cleanup() {
