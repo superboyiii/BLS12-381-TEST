@@ -53,21 +53,21 @@ public class Bls12381MultiExpHelper
     //
     // For more details, see: neo/scripts/SCALAR_SELECTION_GUIDE.md
     //
-    private static readonly BigInteger[] SCALARS = new BigInteger[] { 1337 };
+    private static readonly BigInteger[] SCALARS = new BigInteger[] { 2147483647 };
 
     // Whether to use G2 point (true = G2, false = G1)
-    private static readonly bool USE_G2 = true;
+    private static readonly bool USE_G2 = false;
     
     // Backward compatibility: Legacy single point support
     // If G1_POINTS or G2_POINTS is empty, these will be used
-    private static readonly string G1_HEX = "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb";
-    private static readonly string G2_HEX = "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+    private static readonly string G1_HEX = "b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb";
+    private static readonly string G2_HEX = "b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8";
 
     // ============================================
     // Configuration: Operation Type
     // ============================================
     // Operation types: "multiexp", "g1add", "g2add", "g1mul", "g2mul", "pairing"
-    private static readonly string OPERATION_TYPE = "multiexp";
+    private static readonly string OPERATION_TYPE = "pairing";
     
     // For Add operations: second point (compressed format)
     // For Mul operations: scalar value

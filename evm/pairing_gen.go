@@ -829,6 +829,23 @@ func parseEthereumG1PointFromBytes(data []byte) (bls.G1Affine, error) {
 		return bls.G1Affine{}, fmt.Errorf("ethereum G1 point must be 128 bytes, got %d", len(data))
 	}
 
+	// Check if this is an infinity point (all coordinates are zero)
+	// Infinity point in Ethereum format: all 128 bytes are zero
+	isInfinity := true
+	for i := 0; i < 128; i++ {
+		if data[i] != 0 {
+			isInfinity = false
+			break
+		}
+	}
+
+	if isInfinity {
+		// Return infinity point directly
+		var infinityPoint bls.G1Affine
+		// G1Affine zero value is infinity point
+		return infinityPoint, nil
+	}
+
 	// Check that first 16 bytes of each field element are zero
 	for i := 0; i < 16; i++ {
 		if data[i] != 0 || data[64+i] != 0 {
@@ -1592,6 +1609,23 @@ func parseEthereumG2PointFromBytes(data []byte) (bls.G2Affine, error) {
 	xC1Bytes := data[80:128]  // x.C1 (48 bytes, big-endian) - second 64 bytes, skip first 16
 	yC0Bytes := data[144:192] // y.C0 (48 bytes, big-endian) - third 64 bytes, skip first 16
 	yC1Bytes := data[208:256] // y.C1 (48 bytes, big-endian) - fourth 64 bytes, skip first 16
+
+	// Check if this is an infinity point (all coordinates are zero)
+	// Infinity point in Ethereum format: all 256 bytes are zero
+	isInfinity := true
+	for i := 0; i < 256; i++ {
+		if data[i] != 0 {
+			isInfinity = false
+			break
+		}
+	}
+
+	if isInfinity {
+		// Return infinity point directly
+		var infinityPoint bls.G2Affine
+		// G2Affine zero value is infinity point
+		return infinityPoint, nil
+	}
 
 	// If padding is non-zero, the data might actually be in the first 48 bytes of each field
 	// Let's check if the standard extraction produces valid data, and if not, try alternative

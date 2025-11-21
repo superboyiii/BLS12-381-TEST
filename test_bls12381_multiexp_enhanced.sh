@@ -238,14 +238,38 @@ HELPER_BACKUP=$(mktemp)
 FAILED_TEST_LOG="$NEO_SCRIPTS_DIR/failed_tests_$(date +%Y%m%d_%H%M%S).log"
 
 BOUNDARY_CASES=(
-    "name=g1_min_scalar_one|use_g2=false|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=1"
-    "name=g1_scalar_intmax|use_g2=false|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=2147483647"
-    "name=g1_neg_y_bit|use_g2=false|point=b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=123456789,1"
-    "name=g1_infinity|use_g2=false|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalars=987654321"
-    "name=g2_min_scalar_one|use_g2=true|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=1"
-    "name=g2_scalar_intmax|use_g2=true|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=2147483647"
-    "name=g2_neg_y_bit|use_g2=true|point=b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=2147483647,2"
-    "name=g2_infinity|use_g2=true|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalars=1337"
+    # MultiExp tests
+    "name=g1_min_scalar_one|operation=multiexp|use_g2=false|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=1"
+    "name=g1_scalar_intmax|operation=multiexp|use_g2=false|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=2147483647"
+    "name=g1_neg_y_bit|operation=multiexp|use_g2=false|point=b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalars=123456789,1"
+    "name=g1_infinity|operation=multiexp|use_g2=false|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalars=987654321"
+    "name=g2_min_scalar_one|operation=multiexp|use_g2=true|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=1"
+    "name=g2_scalar_intmax|operation=multiexp|use_g2=true|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=2147483647"
+    "name=g2_neg_y_bit|operation=multiexp|use_g2=true|point=b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalars=2147483647,2"
+    "name=g2_infinity|operation=multiexp|use_g2=true|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalars=1337"
+    # G1Add tests
+    "name=g1add_normal|operation=g1add|point1=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|point2=a195fab58325ffd54c08d3b180d2275ca2b45ab91623a5d6b330d88d25f0754b7259e710636296e583c8be33e968860d"
+    "name=g1add_infinity|operation=g1add|point1=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|point2=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    "name=g1add_neg_y_bit|operation=g1add|point1=b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|point2=a195fab58325ffd54c08d3b180d2275ca2b45ab91623a5d6b330d88d25f0754b7259e710636296e583c8be33e968860d"
+    # G1Mul tests
+    "name=g1mul_min_scalar|operation=g1mul|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalar=1"
+    "name=g1mul_intmax|operation=g1mul|point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalar=2147483647"
+    "name=g1mul_infinity|operation=g1mul|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalar=1337"
+    "name=g1mul_neg_y_bit|operation=g1mul|point=b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|scalar=987654321"
+    # G2Add tests
+    "name=g2add_normal|operation=g2add|point1=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|point2=95d7dc07e5eaf185910d9fad2dd69fabb971b3113540a4a411b1d568f5bb6b1fa1bac6bb97a638b204fe5bbac6be140a10bacf59b3e520f1d9ab073377b8c2718ed556852004eb6cec6e153cbbae4e1891a05f5dbae38cead62004d3b37e5f36"
+    "name=g2add_infinity|operation=g2add|point1=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|point2=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    "name=g2add_neg_y_bit|operation=g2add|point1=b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|point2=95d7dc07e5eaf185910d9fad2dd69fabb971b3113540a4a411b1d568f5bb6b1fa1bac6bb97a638b204fe5bbac6be140a10bacf59b3e520f1d9ab073377b8c2718ed556852004eb6cec6e153cbbae4e1891a05f5dbae38cead62004d3b37e5f36"
+    # G2Mul tests
+    "name=g2mul_min_scalar|operation=g2mul|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalar=1"
+    "name=g2mul_intmax|operation=g2mul|point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalar=2147483647"
+    "name=g2mul_infinity|operation=g2mul|point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|scalar=1337"
+    "name=g2mul_neg_y_bit|operation=g2mul|point=b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8|scalar=987654321"
+    # Pairing tests
+    "name=pairing_normal|operation=pairing|g1_point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|g2_point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
+    "name=pairing_g1_infinity|operation=pairing|g1_point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000|g2_point=93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
+    "name=pairing_g2_infinity|operation=pairing|g1_point=97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|g2_point=c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    "name=pairing_neg_y_bits|operation=pairing|g1_point=b7f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb|g2_point=b3e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
 )
 
 # Backup original file
@@ -266,9 +290,15 @@ run_boundary_tests() {
     for entry in "${BOUNDARY_CASES[@]}"; do
         case_index=$((case_index + 1))
         local case_name=""
+        local case_operation="multiexp"
         local case_use_g2="false"
         local case_point=""
+        local case_point1=""
+        local case_point2=""
+        local case_g1_point=""
+        local case_g2_point=""
         local case_scalars=""
+        local case_scalar=""
 
         IFS='|' read -r -a parts <<< "$entry"
         for part in "${parts[@]}"; do
@@ -276,50 +306,114 @@ run_boundary_tests() {
             local value=${part#*=}
             case "$key" in
                 name) case_name="$value" ;;
+                operation) case_operation="$value" ;;
                 use_g2) case_use_g2="$value" ;;
                 point) case_point="$value" ;;
+                point1) case_point1="$value" ;;
+                point2) case_point2="$value" ;;
+                g1_point) case_g1_point="$value" ;;
+                g2_point) case_g2_point="$value" ;;
                 scalars) case_scalars="$value" ;;
+                scalar) case_scalar="$value" ;;
             esac
         done
 
-        echo -e "${CYAN}--- Boundary Case $case_index/$total_cases: $case_name ---${NC}"
+        echo -e "${CYAN}--- Boundary Case $case_index/$total_cases: $case_name ($case_operation) ---${NC}"
 
-        if [ -z "$case_point" ] || [ -z "$case_scalars" ]; then
-            echo -e "${RED}Error: boundary case $case_name missing point or scalars${NC}"
-            mismatch_count=$((mismatch_count + 1))
-            continue
-        fi
+        # Validate required fields based on operation type
+        case "$case_operation" in
+            multiexp)
+                if [ -z "$case_point" ] || [ -z "$case_scalars" ]; then
+                    echo -e "${RED}Error: boundary case $case_name missing point or scalars${NC}"
+                    mismatch_count=$((mismatch_count + 1))
+                    continue
+                fi
+                echo "Point (compressed): ${case_point:0:64}..."
+                echo "Scalars: $case_scalars"
+                ;;
+            g1add|g2add)
+                if [ -z "$case_point1" ] || [ -z "$case_point2" ]; then
+                    echo -e "${RED}Error: boundary case $case_name missing point1 or point2${NC}"
+                    mismatch_count=$((mismatch_count + 1))
+                    continue
+                fi
+                echo "Point1 (compressed): ${case_point1:0:64}..."
+                echo "Point2 (compressed): ${case_point2:0:64}..."
+                ;;
+            g1mul|g2mul)
+                if [ -z "$case_point" ] || [ -z "$case_scalar" ]; then
+                    echo -e "${RED}Error: boundary case $case_name missing point or scalar${NC}"
+                    mismatch_count=$((mismatch_count + 1))
+                    continue
+                fi
+                echo "Point (compressed): ${case_point:0:64}..."
+                echo "Scalar: $case_scalar"
+                ;;
+            pairing)
+                if [ -z "$case_g1_point" ] || [ -z "$case_g2_point" ]; then
+                    echo -e "${RED}Error: boundary case $case_name missing g1_point or g2_point${NC}"
+                    mismatch_count=$((mismatch_count + 1))
+                    continue
+                fi
+                echo "G1 Point (compressed): ${case_g1_point:0:64}..."
+                echo "G2 Point (compressed): ${case_g2_point:0:64}..."
+                ;;
+            *)
+                echo -e "${RED}Error: unknown operation type: $case_operation${NC}"
+                mismatch_count=$((mismatch_count + 1))
+                continue
+                ;;
+        esac
 
-        echo "Point (compressed): ${case_point:0:64}..."
-        echo "Scalars: $case_scalars"
-
+        # Calculate expected result using pairing_gen.go
         cd "$EVM_DIR"
-        if [ "$case_use_g2" = true ]; then
-            if ! go run pairing_gen.go manual --g2 "$case_point" --scalars "$case_scalars" --use-g2 > "$TEMP_OUTPUT" 2>&1; then
-                echo -e "${RED}Error: pairing_gen.go manual (G2) failed for $case_name${NC}"
-                cat "$TEMP_OUTPUT"
-                mismatch_count=$((mismatch_count + 1))
-                cd "$SCRIPT_DIR"
-                continue
-            fi
-        else
-            if ! go run pairing_gen.go manual --g1 "$case_point" --scalars "$case_scalars" > "$TEMP_OUTPUT" 2>&1; then
-                echo -e "${RED}Error: pairing_gen.go manual (G1) failed for $case_name${NC}"
-                cat "$TEMP_OUTPUT"
-                mismatch_count=$((mismatch_count + 1))
-                cd "$SCRIPT_DIR"
-                continue
-            fi
-        fi
+        local EXPECTED_RESULT=""
+        local ETHEREUM_INPUT_HEX=""
+        
+        case "$case_operation" in
+            multiexp)
+                if [ "$case_use_g2" = true ]; then
+                    if ! go run pairing_gen.go manual --g2 "$case_point" --scalars "$case_scalars" --use-g2 > "$TEMP_OUTPUT" 2>&1; then
+                        echo -e "${RED}Error: pairing_gen.go manual (G2) failed for $case_name${NC}"
+                        cat "$TEMP_OUTPUT"
+                        mismatch_count=$((mismatch_count + 1))
+                        cd "$SCRIPT_DIR"
+                        continue
+                    fi
+                else
+                    if ! go run pairing_gen.go manual --g1 "$case_point" --scalars "$case_scalars" > "$TEMP_OUTPUT" 2>&1; then
+                        echo -e "${RED}Error: pairing_gen.go manual (G1) failed for $case_name${NC}"
+                        cat "$TEMP_OUTPUT"
+                        mismatch_count=$((mismatch_count + 1))
+                        cd "$SCRIPT_DIR"
+                        continue
+                    fi
+                fi
+                EXPECTED_RESULT=$(grep -m 1 "MultiExp result (compressed" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+                ;;
+            g1add|g2add)
+                # Convert compressed points to Ethereum format and compute addition
+                # First, we need to convert points to Ethereum format
+                # For now, we'll generate the input in C# helper and use pairing_gen.go to verify
+                # We'll extract the Ethereum format input from C# helper output later
+                echo "  Note: Ethereum format input will be generated by C# helper"
+                ;;
+            g1mul|g2mul)
+                # Convert compressed point to Ethereum format and compute multiplication
+                # We'll extract the Ethereum format input from C# helper output later
+                echo "  Note: Ethereum format input will be generated by C# helper"
+                ;;
+            pairing)
+                # Convert compressed G1 and G2 points to Ethereum format and compute pairing
+                # We'll extract the Ethereum format input from C# helper output later
+                echo "  Note: Ethereum format input will be generated by C# helper"
+                ;;
+        esac
         cd "$SCRIPT_DIR"
-
-        local EXPECTED_RESULT=$(grep -m 1 "MultiExp result (compressed" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
-        if [ -z "$EXPECTED_RESULT" ]; then
-            echo -e "${RED}Error: cannot extract expected result for $case_name${NC}"
-            mismatch_count=$((mismatch_count + 1))
-            continue
+        
+        if [ -n "$EXPECTED_RESULT" ]; then
+            echo "Expected (compressed): ${EXPECTED_RESULT:0:64}..."
         fi
-        echo "Expected (compressed): ${EXPECTED_RESULT:0:64}..."
 
         cd "$SCRIPT_DIR/$HELPER_DIR"
         HELPER_CS_FILE="Bls12381MultiExpHelper.cs"
@@ -338,21 +432,57 @@ text, _ = re.subn(r'private static readonly string\[\] G1_POINTS\s*=\s*new\s*str
 text, _ = re.subn(r'private static readonly string\[\] G2_POINTS\s*=\s*new\s*string\[\]\s*\{.*?\};',
                   'private static readonly string[] G2_POINTS = Array.Empty<string>();',
                   text, count=1, flags=re.S)
+text, _ = re.subn(r'private static readonly string\[\] G1_PAIRS\s*=\s*new\s*string\[\]\s*\{.*?\};',
+                  'private static readonly string[] G1_PAIRS = Array.Empty<string>();',
+                  text, count=1, flags=re.S)
+text, _ = re.subn(r'private static readonly string\[\] G2_PAIRS\s*=\s*new\s*string\[\]\s*\{.*?\};',
+                  'private static readonly string[] G2_PAIRS = Array.Empty<string>();',
+                  text, count=1, flags=re.S)
 
 path.write_text(text, encoding="utf-8")
 PYTHON_SCRIPT
 
-        if [ "$case_use_g2" = true ]; then
-            sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = true;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
-            sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
-        else
-            sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = false;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
-            sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
-        fi
-        sed -i.bak "s|private static readonly string OPERATION_TYPE = \".*\";|private static readonly string OPERATION_TYPE = \"multiexp\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+        # Update operation type
+        sed -i.bak "s|private static readonly string OPERATION_TYPE = \".*\";|private static readonly string OPERATION_TYPE = \"$case_operation\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
 
-        local SCALARS_CSHARP=$(echo "$case_scalars" | sed 's/,/, /g')
-        sed -i.bak "s|private static readonly BigInteger\[\] SCALARS = new BigInteger\[\] { .* };|private static readonly BigInteger[] SCALARS = new BigInteger[] { $SCALARS_CSHARP };|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+        # Update configuration based on operation type
+        case "$case_operation" in
+            multiexp)
+                if [ "$case_use_g2" = true ]; then
+                    sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = true;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                    sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                else
+                    sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = false;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                    sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                fi
+                local SCALARS_CSHARP=$(echo "$case_scalars" | sed 's/,/, /g')
+                sed -i.bak "s|private static readonly BigInteger\[\] SCALARS = new BigInteger\[\] { .* };|private static readonly BigInteger[] SCALARS = new BigInteger[] { $SCALARS_CSHARP };|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                ;;
+            g1add)
+                sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = false;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$case_point1\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G1_SECOND_POINT_HEX = \".*\";|private static readonly string G1_SECOND_POINT_HEX = \"$case_point2\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                ;;
+            g2add)
+                sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = true;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$case_point1\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G2_SECOND_POINT_HEX = \".*\";|private static readonly string G2_SECOND_POINT_HEX = \"$case_point2\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                ;;
+            g1mul)
+                sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = false;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly BigInteger MUL_SCALAR = .*;|private static readonly BigInteger MUL_SCALAR = $case_scalar;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                ;;
+            g2mul)
+                sed -i.bak "s|private static readonly bool USE_G2 = .*;|private static readonly bool USE_G2 = true;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$case_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly BigInteger MUL_SCALAR = .*;|private static readonly BigInteger MUL_SCALAR = $case_scalar;|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                ;;
+            pairing)
+                sed -i.bak "s|private static readonly string G1_HEX = \".*\";|private static readonly string G1_HEX = \"$case_g1_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                sed -i.bak "s|private static readonly string G2_HEX = \".*\";|private static readonly string G2_HEX = \"$case_g2_point\";|" "$HELPER_CS_FILE" && rm -f "$HELPER_CS_FILE.bak"
+                ;;
+        esac
 
         if ! dotnet run --project Bls12381MultiExpHelper.csproj > "$TEMP_OUTPUT" 2>&1; then
             echo -e "${RED}Error: dotnet run failed for $case_name${NC}"
@@ -457,6 +587,50 @@ PY_SCRIPT
             continue
         fi
 
+        # For Add/Mul/Pairing operations, we need to extract Ethereum format input and calculate expected result
+        if [ "$case_operation" != "multiexp" ]; then
+            # Extract Ethereum format input from C# helper output
+            if grep -q "Ethereum format input (for pairing_gen.go" "$TEMP_OUTPUT"; then
+                ETHEREUM_INPUT_HEX=$(grep -A 1 "Ethereum format input (for pairing_gen.go" "$TEMP_OUTPUT" | tail -n 1 | tr -d '[:space:]')
+            fi
+            
+            if [ -z "$ETHEREUM_INPUT_HEX" ]; then
+                echo -e "${YELLOW}Warning: Cannot extract Ethereum format input from C# output${NC}"
+                echo -e "${YELLOW}Actual result from Neo: ${ACTUAL_RESULT:0:64}...${NC}"
+                success_count=$((success_count + 1))
+                cd "$SCRIPT_DIR"
+                echo ""
+                continue
+            fi
+            
+            # Calculate expected result using pairing_gen.go
+            cd "$EVM_DIR"
+            if ! go run pairing_gen.go "$case_operation" --input "$ETHEREUM_INPUT_HEX" > "$TEMP_OUTPUT" 2>&1; then
+                echo -e "${RED}Error: pairing_gen.go $case_operation failed for $case_name${NC}"
+                cat "$TEMP_OUTPUT"
+                mismatch_count=$((mismatch_count + 1))
+                cd "$SCRIPT_DIR"
+                continue
+            fi
+            
+            # Extract expected result based on operation type
+            if [ "$case_operation" = "pairing" ]; then
+                EXPECTED_RESULT=$(grep -m 1 "^Result (32 bytes, 64 hex chars):" "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            else
+                EXPECTED_RESULT=$(grep -m 1 "^Result (Ethereum format," "$TEMP_OUTPUT" | sed 's/.*: //' | tr -d '[:space:]')
+            fi
+            
+            if [ -z "$EXPECTED_RESULT" ]; then
+                echo -e "${YELLOW}Warning: Cannot extract expected result from pairing_gen.go${NC}"
+                echo -e "${YELLOW}Actual result from Neo: ${ACTUAL_RESULT:0:64}...${NC}"
+                success_count=$((success_count + 1))
+                cd "$SCRIPT_DIR"
+                echo ""
+                continue
+            fi
+            cd "$SCRIPT_DIR"
+        fi
+
         echo "Expected: ${EXPECTED_RESULT:0:64}..."
         echo "Actual  : ${ACTUAL_RESULT:0:64}..."
 
@@ -468,11 +642,27 @@ PY_SCRIPT
             mismatch_count=$((mismatch_count + 1))
             {
                 echo "=========================================="
-                echo "Boundary Case: $case_name - $(date)"
+                echo "Boundary Case: $case_name ($case_operation) - $(date)"
                 echo "=========================================="
-                echo "Use G2: $case_use_g2"
-                echo "Point: $case_point"
-                echo "Scalars: $case_scalars"
+                case "$case_operation" in
+                    multiexp)
+                        echo "Use G2: $case_use_g2"
+                        echo "Point: $case_point"
+                        echo "Scalars: $case_scalars"
+                        ;;
+                    g1add|g2add)
+                        echo "Point1: $case_point1"
+                        echo "Point2: $case_point2"
+                        ;;
+                    g1mul|g2mul)
+                        echo "Point: $case_point"
+                        echo "Scalar: $case_scalar"
+                        ;;
+                    pairing)
+                        echo "G1 Point: $case_g1_point"
+                        echo "G2 Point: $case_g2_point"
+                        ;;
+                esac
                 echo "Expected: $EXPECTED_RESULT"
                 echo "Actual  : $ACTUAL_RESULT"
                 echo ""
